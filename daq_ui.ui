@@ -42,7 +42,7 @@
      </rect>
     </property>
     <property name="currentIndex">
-     <number>0</number>
+     <number>1</number>
     </property>
     <widget class="QWidget" name="acq_vol">
      <attribute name="title">
@@ -498,7 +498,7 @@
        <rect>
         <x>0</x>
         <y>50</y>
-        <width>486</width>
+        <width>494</width>
         <height>41</height>
        </rect>
       </property>
@@ -859,6 +859,139 @@
       <string>R-</string>
      </property>
     </widget>
+    <widget class="QComboBox" name="Axis_choice">
+     <property name="geometry">
+      <rect>
+       <x>240</x>
+       <y>60</y>
+       <width>41</width>
+       <height>26</height>
+      </rect>
+     </property>
+     <item>
+      <property name="text">
+       <string>X</string>
+      </property>
+     </item>
+     <item>
+      <property name="text">
+       <string>Y</string>
+      </property>
+     </item>
+    </widget>
+    <widget class="QPushButton" name="Backward_circle">
+     <property name="geometry">
+      <rect>
+       <x>402</x>
+       <y>90</y>
+       <width>71</width>
+       <height>26</height>
+      </rect>
+     </property>
+     <property name="text">
+      <string>Backward</string>
+     </property>
+    </widget>
+    <widget class="QPushButton" name="Forward_circle">
+     <property name="geometry">
+      <rect>
+       <x>340</x>
+       <y>90</y>
+       <width>61</width>
+       <height>26</height>
+      </rect>
+     </property>
+     <property name="text">
+      <string>Forward</string>
+     </property>
+    </widget>
+    <widget class="QComboBox" name="direction_choice">
+     <property name="geometry">
+      <rect>
+       <x>290</x>
+       <y>60</y>
+       <width>111</width>
+       <height>26</height>
+      </rect>
+     </property>
+     <item>
+      <property name="text">
+       <string>one directiona</string>
+      </property>
+     </item>
+     <item>
+      <property name="text">
+       <string>repeatedly</string>
+      </property>
+     </item>
+    </widget>
+    <widget class="QSpinBox" name="Circle_times">
+     <property name="geometry">
+      <rect>
+       <x>410</x>
+       <y>60</y>
+       <width>61</width>
+       <height>22</height>
+      </rect>
+     </property>
+     <property name="minimum">
+      <number>1</number>
+     </property>
+     <property name="maximum">
+      <number>100</number>
+     </property>
+    </widget>
+    <widget class="QDoubleSpinBox" name="distanceSpinBox_2">
+     <property name="geometry">
+      <rect>
+       <x>240</x>
+       <y>90</y>
+       <width>81</width>
+       <height>22</height>
+      </rect>
+     </property>
+     <property name="decimals">
+      <number>3</number>
+     </property>
+     <property name="maximum">
+      <double>5.000000000000000</double>
+     </property>
+     <property name="singleStep">
+      <double>0.001000000000000</double>
+     </property>
+    </widget>
+    <widget class="QDoubleSpinBox" name="Gap_time">
+     <property name="geometry">
+      <rect>
+       <x>240</x>
+       <y>120</y>
+       <width>81</width>
+       <height>22</height>
+      </rect>
+     </property>
+     <property name="decimals">
+      <number>3</number>
+     </property>
+     <property name="maximum">
+      <double>5.000000000000000</double>
+     </property>
+     <property name="singleStep">
+      <double>0.001000000000000</double>
+     </property>
+    </widget>
+    <widget class="QPushButton" name="Emergency_Stop">
+     <property name="geometry">
+      <rect>
+       <x>350</x>
+       <y>120</y>
+       <width>111</width>
+       <height>26</height>
+      </rect>
+     </property>
+     <property name="text">
+      <string>Emergency Stop</string>
+     </property>
+    </widget>
    </widget>
    <widget class="QGroupBox" name="groupBox_3">
     <property name="geometry">
@@ -952,7 +1085,7 @@
       <rect>
        <x>230</x>
        <y>300</y>
-       <width>81</width>
+       <width>91</width>
        <height>16</height>
       </rect>
      </property>
@@ -968,9 +1101,9 @@
     <widget class="QLabel" name="Force4_Label">
      <property name="geometry">
       <rect>
-       <x>380</x>
+       <x>370</x>
        <y>300</y>
-       <width>81</width>
+       <width>91</width>
        <height>16</height>
       </rect>
      </property>
@@ -986,9 +1119,9 @@
     <widget class="QLabel" name="Force3_Label">
      <property name="geometry">
       <rect>
-       <x>380</x>
+       <x>370</x>
        <y>260</y>
-       <width>81</width>
+       <width>91</width>
        <height>16</height>
       </rect>
      </property>
@@ -1006,7 +1139,7 @@
       <rect>
        <x>230</x>
        <y>260</y>
-       <width>81</width>
+       <width>91</width>
        <height>16</height>
       </rect>
      </property>
