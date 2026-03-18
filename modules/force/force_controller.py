@@ -55,6 +55,7 @@ class ForceController:
             print("[Force] 数据不足，无法归零")
             return
 
+        # ⭐ 用原始数据算零点
         self.zero_offset = np.mean(self.zero_buffer[-100:], axis=0)
 
         print("[Force] 归零完成")
@@ -71,16 +72,17 @@ class ForceController:
 
     def on_data(self, total_force, vals):
         vals = np.array(vals)
-        vals = vals - self.zero_offset
-        # ⭐ 做零点处理（放这里！）
-        vals = vals - np.mean(self.zero_buffer[-100:], axis=0) if len(self.zero_buffer) >= 100 else vals
 
-        self.latest_force = float(np.sum(vals))
-        self.latest_vals = vals
-
+        # ⭐ 先存原始值（关键！）
         self.zero_buffer.append(vals)
         if len(self.zero_buffer) > 300:
             self.zero_buffer.pop(0)
+
+        # ⭐ 再做零点修正
+        vals = vals - self.zero_offset
+
+        self.latest_vals = vals
+        self.latest_force = float(np.sum(vals))
 
     def update_ui(self):
         if not self.running or self.latest_vals is None:

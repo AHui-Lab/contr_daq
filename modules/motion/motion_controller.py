@@ -16,7 +16,7 @@ class MotionController:
 
         # ⚠️ 这里的 IP 请换成你真实的控制卡 IP
         self.motion = NetAMC4XER(
-            dll_path="F:/桌面/contr_daq/contr_daq/NET_AMC4XER.dll",
+            dll_path="F:/桌面/Github/contr_daq/NET_AMC4XER.dll",
             dest_ip="192.168.1.30"
         )
 
