@@ -10,6 +10,7 @@ class NetAMC4XER:
         self.dll.SOCKET_init.restype = c_uint
         self.dll.SOCKET_delete.restype = None
 
+
         self.dll.Set_Axs.argtypes = [
             c_char_p, c_uint, c_uint, c_uint, c_uint, c_uint
         ]
@@ -26,7 +27,7 @@ class NetAMC4XER:
     def enable_axis(self, axis: int):
         return self.dll.Set_Axs(self.dest_ip, axis, 1, 1, 1, 1)
 
-    def move_relative(self, axis: int, direction: int, length: int):
+    def move_relative(self, axis: int, direction: int, length: int,sped_setting_val: int):
         return self.dll.DeltMov(
             self.dest_ip,
             axis,
@@ -34,7 +35,7 @@ class NetAMC4XER:
             direction,      # Dir
             0,              # Outmod
             2000,            # Vo
-            2000,            # Vt
+            2000*sped_setting_val,            # Vt
             length,         # Length
             0,              # StartDec
             200,             # Acctime

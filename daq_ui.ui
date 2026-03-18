@@ -498,7 +498,7 @@
        <rect>
         <x>0</x>
         <y>50</y>
-        <width>471</width>
+        <width>486</width>
         <height>41</height>
        </rect>
       </property>
@@ -808,6 +808,12 @@
        <height>22</height>
       </rect>
      </property>
+     <property name="minimum">
+      <number>1</number>
+     </property>
+     <property name="maximum">
+      <number>10</number>
+     </property>
     </widget>
     <widget class="QLabel" name="label_11">
      <property name="geometry">
@@ -827,17 +833,30 @@
       <string>Speed Settings</string>
      </property>
     </widget>
-    <widget class="QPushButton" name="xPosButton_2">
+    <widget class="QPushButton" name="RPosButton">
      <property name="geometry">
       <rect>
-       <x>300</x>
-       <y>90</y>
-       <width>61</width>
+       <x>10</x>
+       <y>20</y>
+       <width>41</width>
        <height>26</height>
       </rect>
      </property>
      <property name="text">
-      <string>X+</string>
+      <string>R+</string>
+     </property>
+    </widget>
+    <widget class="QPushButton" name="RNegButton">
+     <property name="geometry">
+      <rect>
+       <x>10</x>
+       <y>100</y>
+       <width>41</width>
+       <height>26</height>
+      </rect>
+     </property>
+     <property name="text">
+      <string>R-</string>
      </property>
     </widget>
    </widget>

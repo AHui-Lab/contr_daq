@@ -2,6 +2,7 @@
 
 from modules.motion.net_amc4xer import NetAMC4XER
 from utils.log import log   # 如果你有统一日志系统（可选）
+from pathlib import Path
 
 
 class MotionController:
@@ -9,14 +10,18 @@ class MotionController:
         "X": 1,
         "Y": 0,
         "Z": 3,
+        "R": 2,
     }
+    BASE_DIR = Path(__file__).resolve().parents[2]
+    dll_path = BASE_DIR / "dll" / "NET_AMC4XER.dll"
 
     def __init__(self, ui):
         self.ui = ui
+        self.speed_setting_val=self.ui.Speed_Setting_val.value
 
         # ⚠️ 这里的 IP 请换成你真实的控制卡 IP
         self.motion = NetAMC4XER(
-            dll_path="F:/桌面/Github/contr_daq/NET_AMC4XER.dll",
+            dll_path=str(self.dll_path),
             dest_ip="192.168.1.30"
         )
 
@@ -27,6 +32,10 @@ class MotionController:
         self.ui.yNegButton.clicked.connect(lambda: self.move("Y", -1))
         self.ui.zPosButton.clicked.connect(lambda: self.move("Z", +1))
         self.ui.zNegButton.clicked.connect(lambda: self.move("Z", -1))
+        self.ui.RPosButton.clicked.connect(lambda: self.move("R", +1))
+        self.ui.RNegButton.clicked.connect(lambda: self.move("R", -1))
+
+
 
     # -----------------------------
     # 点动（相对位移）
@@ -45,9 +54,14 @@ class MotionController:
 
 
         log(f"[Motion] {axis_name} {'+' if direction > 0 else '-'} {distance_mm} mm")
+        #保证Z轴移动速度不变
+        if axis_name == "Z":
+            self.motion.enable_axis(axis)
+            self.motion.move_relative(axis, 0 if direction > 0 else 1, length_pulse, 1)
+        else:
+            self.motion.enable_axis(axis)
+            self.motion.move_relative(axis, 0 if direction > 0 else 1, length_pulse, self.speed_setting_val)
 
-        self.motion.enable_axis(axis)
-        self.motion.move_relative(axis, 0 if direction > 0 else 1, length_pulse)
 
     # -----------------------------
     # 单位换算
