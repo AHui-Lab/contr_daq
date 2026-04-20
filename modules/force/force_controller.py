@@ -4,6 +4,8 @@ from modules.force.force_thread import ForceThread
 from modules.force.force_plot import ForcePlot
 from modules.force.force_balance_plot import ForceBalancePlot
 from utils.log import log   # 如果你有统一日志系统（可选）
+from modules.recorder.data_recorder import DataRecorder
+import time
 
 class ForceController:
     def __init__(self, ui):
@@ -23,6 +25,8 @@ class ForceController:
 
         self.ui.forceStartButton.clicked.connect(self.toggle)
         self.ui.forceZeroButton.clicked.connect(self.zero)
+        self.recorder = DataRecorder()
+
 
     def toggle(self):
         if self.thread and self.thread.isRunning():
@@ -73,16 +77,27 @@ class ForceController:
     def on_data(self, total_force, vals):
         vals = np.array(vals)
 
-        # ⭐ 先存原始值（关键！）
+        # ⭐ 先存原始值（用于归零）
         self.zero_buffer.append(vals)
         if len(self.zero_buffer) > 300:
             self.zero_buffer.pop(0)
 
-        # ⭐ 再做零点修正
-        vals = vals - self.zero_offset
+        # ⭐ 零点修正
+        corrected_vals = vals - self.zero_offset
+        corrected_total = float(np.sum(corrected_vals))
 
-        self.latest_vals = vals
-        self.latest_force = float(np.sum(vals))
+        self.latest_vals = corrected_vals
+        self.latest_force = corrected_total
+
+        # =============================
+        # ⭐⭐ 新增：数据保存（核心）
+        # =============================
+        if self.recorder.recording:
+            self.recorder.add_force_data(
+                timestamp=time.time(),
+                total_force=corrected_total,
+                vals=corrected_vals.tolist()
+            )
 
     def update_ui(self):
         if not self.running or self.latest_vals is None:

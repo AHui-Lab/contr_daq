@@ -56,6 +56,22 @@ class DataRecorder:
         t = time.time() - self.start_time
         self.daq_buffer.append([t] + voltages)
 
+    def add_force_data(self, timestamp, total_force, vals):
+        if not self.recording:
+            return
+
+        # 示例：一行数据
+        row = [
+            timestamp,
+            total_force,
+            vals[0],
+            vals[1],
+            vals[2],
+            vals[3],
+        ]
+
+        self.force_buffer.append(row)
+
     # ======================
     # 保存
     # ======================
