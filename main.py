@@ -36,6 +36,8 @@ from modules.force.force_controller import ForceController
 
 from modules.ui.led_indicator import LedIndicatorManager
 
+from modules.recorder.data_recorder import DataRecorder
+
 
 
 class MainWindow:
@@ -76,6 +78,7 @@ class MainWindow:
         self.timer = QTimer()
         self.timer.timeout.connect(self.update_all_ui)
         self.timer.start(30)  # 30ms刷新
+        self.recorder = DataRecorder()
 
     def update_all_ui(self):
         if hasattr(self, "camera_controller_1"):

@@ -3,7 +3,7 @@ from .daq_thread import DaqThread
 from .daq_plot import DaqPlot
 from utils.log import log
 import numpy as np
-
+from modules.recorder.data_recorder import DataRecorder
 
 class DaqController:
     def __init__(self, ui, plot, led_manager):
@@ -21,8 +21,12 @@ class DaqController:
             self.on_device_changed
         )
 
+        self.ui.recorderStartButton.clicked.connect(self.start_record)
+        self.ui.recorderStopButton.clicked.connect(self.stop_record)
         # ===== 初始化 =====
         self.refresh_devices()
+
+        self.recorder = DataRecorder()
 
     # --------------------------------------------------
     # 枚举 NI 设备
@@ -37,6 +41,16 @@ class DaqController:
         if self.ui.daqDeviceComboBox.count() > 0:
             self.ui.daqDeviceComboBox.setCurrentIndex(0)
             self.on_device_changed(0)
+
+    def start_record(self):
+        if self.thread is None:
+            print("[Recorder] 请先启动DAQ")
+            return
+
+        self.recorder.start()
+
+    def stop_record(self):
+        self.recorder.stop()
 
     def on_device_changed(self, index):
         if index < 0:
@@ -79,7 +93,7 @@ class DaqController:
         self.thread = DaqThread(
             device=device,
             channels=channels,
-            sample_rate=fs
+            sample_rate=fs,
         )
 
         def on_daq_data(data):
@@ -97,6 +111,12 @@ class DaqController:
                 currents[ch] = current_mA
 
             self.led_manager.update_from_currents(currents)
+            if self.recorder.recording:
+                # shape: (chunk_size, 通道数)
+                stacked = np.vstack([data[ch] for ch in data]).T
+
+                for row in stacked:
+                    self.recorder.add_daq_data(row)
 
         self.thread.data_ready.connect(on_daq_data)
 

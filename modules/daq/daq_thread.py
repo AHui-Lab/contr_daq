@@ -9,13 +9,14 @@ from utils.log import log
 class DaqThread(QThread):
     data_ready = Signal(dict)
 
-    def __init__(self, device, channels, sample_rate):
+    def __init__(self, device, channels, sample_rate,recorder=None):
         super().__init__()
         self.device = device
         self.channels = channels
         self.sample_rate = sample_rate
         self.chunk_size = 100
         self._running = True
+        self.recorder = recorder
 
     def run(self):
         try:
@@ -50,7 +51,6 @@ class DaqThread(QThread):
                         ch: np.asarray(d)
                         for ch, d in zip(self.channels, data)
                     }
-
                     self.data_ready.emit(result)
 
         except Exception as e:
