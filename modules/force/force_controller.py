@@ -6,6 +6,7 @@ from modules.force.force_balance_plot import ForceBalancePlot
 from utils.log import log   # 如果你有统一日志系统（可选）
 from modules.recorder.data_recorder import DataRecorder
 import time
+from collections import deque
 
 class ForceController:
     def __init__(self, ui):
@@ -21,11 +22,25 @@ class ForceController:
         self.zero_offset = np.zeros(4)
         self.plot = ForcePlot(self.ui.forcePlotWidget, time_window=10.0)
         self.thread = None
-        self.zero_buffer = []
+        self.zero_buffer = deque(maxlen=300)
 
         self.ui.forceStartButton.clicked.connect(self.toggle)
         self.ui.forceZeroButton.clicked.connect(self.zero)
+
+        self.ui.recorderStartButton.clicked.connect(self.start_record)
+        self.ui.recorderStopButton.clicked.connect(self.stop_record)
         self.recorder = DataRecorder()
+
+
+    def start_record(self):
+        if self.thread is None:
+            print("[Recorder] 请先启动DAQ")
+            return
+
+        self.recorder.start()
+
+    def stop_record(self):
+        self.recorder.stop()
 
 
     def toggle(self):
@@ -37,6 +52,7 @@ class ForceController:
     def start(self):
         self.plot.clear()
         self.zero_buffer.clear()
+        self.zero_offset = np.zeros(4)
 
         self.thread = ForceThread(port="COM15", baudrate=9600)
         self.thread.data_ready.connect(self.on_data)
@@ -50,19 +66,41 @@ class ForceController:
         if self.thread:
             self.thread.stop()
             self.thread = None
+            self.latest_force = 0.0
 
         self.running = False
         self.ui.forceStartButton.setText("开始")
 
     def zero(self):
-        if len(self.zero_buffer) < 100:
+        if len(self.zero_buffer) < 30:
             print("[Force] 数据不足，无法归零")
             return
 
-        # ⭐ 用原始数据算零点
-        self.zero_offset = np.mean(self.zero_buffer[-100:], axis=0)
+        data = np.array(self.zero_buffer)
 
-        print("[Force] 归零完成")
+        window = data[-30:]  # ⭐ 最近窗口
+        half = 15
+
+        first_half = window[:half]
+        second_half = window[half:]
+
+        mean1 = np.mean(first_half, axis=0)
+        mean2 = np.mean(second_half, axis=0)
+
+        # ⭐ 条件1：窗口内稳定（噪声小）
+        if np.std(window) > 0.02:
+            print("[Force] 波动过大，归零失败")
+            return
+
+        # ⭐ 条件2：没有趋势变化（关键）
+        if np.linalg.norm(mean2 - mean1) > 0.03:
+            print("[Force] 数据仍在变化，归零失败")
+            return
+
+        # ⭐ 满足条件 → 归零
+        self.zero_offset = np.mean(window, axis=0)
+
+        print("[Force] 快速归零完成")
 
     def on_started(self, ok):
         if ok:
@@ -79,11 +117,10 @@ class ForceController:
 
         # ⭐ 先存原始值（用于归零）
         self.zero_buffer.append(vals)
-        if len(self.zero_buffer) > 300:
-            self.zero_buffer.pop(0)
 
         # ⭐ 零点修正
         corrected_vals = vals - self.zero_offset
+        corrected_vals = corrected_vals * 0.00981
         corrected_total = float(np.sum(corrected_vals))
 
         self.latest_vals = corrected_vals
@@ -107,10 +144,10 @@ class ForceController:
         self.ui.totalForceLabel.setText(f"总力: {self.latest_force:.2f}")
 
         # ===== 四通道 =====
-        self.ui.Force1_Label.setText(f"P1: {self.latest_vals[0]:.2f}")
-        self.ui.Force2_Label.setText(f"P2: {self.latest_vals[1]:.2f}")
-        self.ui.Force3_Label.setText(f"P3: {self.latest_vals[2]:.2f}")
-        self.ui.Force4_Label.setText(f"P4: {self.latest_vals[3]:.2f}")
+        #self.ui.Force1_Label.setText(f"P1: {self.latest_vals[0]:.2f}")
+        #self.ui.Force2_Label.setText(f"P2: {self.latest_vals[1]:.2f}")
+        #self.ui.Force3_Label.setText(f"P3: {self.latest_vals[2]:.2f}")
+        #self.ui.Force4_Label.setText(f"P4: {self.latest_vals[3]:.2f}")
 
         # ===== 只画总力 =====
         self.plot.add_point(self.latest_force)

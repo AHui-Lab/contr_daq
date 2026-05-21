@@ -7,25 +7,41 @@ import numpy as np
 
 class ForceThread(QThread):
     data_ready = Signal(float, list)   # total_force, [ch1,ch2,ch3,ch4]
-
-    FRAME_LEN = 21
     started_ok = Signal(bool)
-    ser=None
 
-    def __init__(self, port="COM15", baudrate=9600):
+    FRAME_LEN = 3 + 16 + 2   # addr + func + bytecount + data(16) + CRC = 21
+
+    def __init__(self, port="COM11", baudrate=9600):
         super().__init__()
         self.port = port
         self.baudrate = baudrate
         self.running = False
-        self.zero_offset = np.zeros(4)
-        self._emit_count = 0
-        self._emit_interval = 2  # 每2帧发一次（你可以改）
 
-    def set_zero(self, offset):
-        self.zero_offset = np.array(offset)
+    # =========================
+    # CRC16 (Modbus)
+    # =========================
+    def crc16(self, data):
+        crc = 0xFFFF
+        for b in data:
+            crc ^= b
+            for _ in range(8):
+                if crc & 1:
+                    crc >>= 1
+                    crc ^= 0xA001
+                else:
+                    crc >>= 1
+        return crc
 
+    def check_crc(self, frame):
+        data = frame[:-2]
+        crc_recv = frame[-2] | (frame[-1] << 8)
+        crc_calc = self.crc16(data)
+        return crc_recv == crc_calc
+
+    # =========================
+    # 主线程
+    # =========================
     def run(self):
-        buffer = bytearray()
         self.running = True
 
         try:
@@ -35,7 +51,7 @@ class ForceThread(QThread):
                 bytesize=serial.EIGHTBITS,
                 parity=serial.PARITY_NONE,
                 stopbits=serial.STOPBITS_ONE,
-                timeout=0.01      # ⚠ 非阻塞模式（关键）
+                timeout=0.1
             )
             self.started_ok.emit(True)
         except Exception as e:
@@ -43,55 +59,80 @@ class ForceThread(QThread):
             self.started_ok.emit(False)
             return
 
-        # Modbus 读命令
+        # 👉 读 4通道重量（地址450，读8寄存器）
         cmd = bytes([1, 3, 1, 194, 0, 8, 228, 12])
+
+        buffer = bytearray()
 
         while self.running:
             try:
                 # 1️⃣ 发送命令
                 ser.write(cmd)
 
-                # 2️⃣ 读取所有数据并累加
-                n = ser.in_waiting
-                if n > 0:
-                    buffer.extend(ser.read(n))
+                # 2️⃣ 读数据（累积缓冲区）
+                time.sleep(0.02)
+                buffer.extend(ser.read(ser.in_waiting or 1))
 
-                # 3️⃣ 只要 buffer 够一帧就解析
+                # 3️⃣ 尝试解析完整帧
                 while len(buffer) >= self.FRAME_LEN:
-                    # ⭐ 找帧头（关键）
+
+                    # 找帧头
                     if buffer[0] != 1 or buffer[1] != 3:
                         buffer.pop(0)
                         continue
 
-                    # ⭐ 取一帧
                     frame = buffer[:self.FRAME_LEN]
-                    buffer = buffer[self.FRAME_LEN:]
 
-                    # ===== 数据解析 =====
+                    # CRC校验
+                    if not self.check_crc(frame):
+                        buffer.pop(0)
+                        continue
+
+                    # 字节数校验
+                    byte_count = frame[2]
+                    if byte_count != 16:
+                        buffer.pop(0)
+                        continue
+
+                    # =========================
+                    # 解析4通道（32bit）
+                    # =========================
                     vals = []
                     for ch in range(4):
-                        base = 4 + ch * 4
+                        base = 3 + ch * 4
+
                         b1 = frame[base]
                         b2 = frame[base + 1]
                         b3 = frame[base + 2]
+                        b4 = frame[base + 3]
 
-                        raw_val = (b1 << 16) | (b2 << 8) | b3
-                        if raw_val >= (1 << 23):
-                            raw_val -= (1 << 24)
+                        raw_val = (b1 << 24) | (b2 << 16) | (b3 << 8) | b4
 
-                        vals.append(raw_val / 1000.0)
+                        # 32bit有符号
+                        if raw_val >= (1 << 31):
+                            raw_val -= (1 << 32)
 
-                    total_force = sum(vals)
+                        # ⚠️ 这里暂时不缩放（先保证正确）
+                        vals.append(raw_val/1000)
 
-                    self._emit_count += 1
+                    vals = np.array(vals)
 
-                    if self._emit_count % self._emit_interval == 0:
-                        self.data_ready.emit(total_force, vals)
+                    total_force = float(np.sum(vals))
+
+                    vals = np.round(vals)
+                    total_force = round(total_force)
+
+                    # 发信号
+                    self.data_ready.emit(total_force, vals.tolist())
+
+                    # 移除已解析帧
+                    buffer = buffer[self.FRAME_LEN:]
+
+                # 控制刷新率
+                self.msleep(20)
 
             except Exception as e:
                 print("[Force] 读取异常:", e)
-
-            self.msleep(1)
 
         if ser and ser.is_open:
             ser.close()

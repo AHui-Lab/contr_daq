@@ -6,7 +6,7 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>1375</width>
+    <width>1378</width>
     <height>1106</height>
    </rect>
   </property>
@@ -332,7 +332,7 @@
        <rect>
         <x>10</x>
         <y>10</y>
-        <width>861</width>
+        <width>851</width>
         <height>701</height>
        </rect>
       </property>
@@ -416,196 +416,182 @@
        <x>0</x>
        <y>0</y>
        <width>471</width>
-       <height>91</height>
+       <height>95</height>
       </rect>
      </property>
      <property name="title">
       <string>Ai_Chanel</string>
      </property>
-     <widget class="QWidget" name="horizontalLayoutWidget_4">
-      <property name="geometry">
-       <rect>
-        <x>0</x>
-        <y>10</y>
-        <width>471</width>
-        <height>41</height>
-       </rect>
-      </property>
-      <layout class="QHBoxLayout" name="channelGroupBox">
-       <item>
-        <widget class="QCheckBox" name="ai0CheckBox">
-         <property name="text">
-          <string>Ai0</string>
-         </property>
-         <property name="checked">
-          <bool>true</bool>
-         </property>
-        </widget>
-       </item>
-       <item>
-        <widget class="QCheckBox" name="ai1CheckBox">
-         <property name="text">
-          <string>Ai1</string>
-         </property>
-         <property name="checked">
-          <bool>true</bool>
-         </property>
-        </widget>
-       </item>
-       <item>
-        <widget class="QCheckBox" name="ai2CheckBox">
-         <property name="text">
-          <string>Ai2</string>
-         </property>
-         <property name="checked">
-          <bool>true</bool>
-         </property>
-        </widget>
-       </item>
-       <item>
-        <widget class="QCheckBox" name="ai3CheckBox">
-         <property name="text">
-          <string>Ai3</string>
-         </property>
-         <property name="checked">
-          <bool>true</bool>
-         </property>
-        </widget>
-       </item>
-       <item>
-        <widget class="QCheckBox" name="ai4CheckBox">
-         <property name="text">
-          <string>Ai4</string>
-         </property>
-         <property name="checked">
-          <bool>true</bool>
-         </property>
-        </widget>
-       </item>
-       <item>
-        <widget class="QCheckBox" name="ai5CheckBox">
-         <property name="text">
-          <string>Ai5</string>
-         </property>
-         <property name="checked">
-          <bool>true</bool>
-         </property>
-        </widget>
-       </item>
-       <item>
-        <widget class="QCheckBox" name="ai6CheckBox">
-         <property name="text">
-          <string>Ai6</string>
-         </property>
-         <property name="checked">
-          <bool>true</bool>
-         </property>
-        </widget>
-       </item>
-       <item>
-        <widget class="QCheckBox" name="ai7CheckBox">
-         <property name="text">
-          <string>Ai7</string>
-         </property>
-         <property name="checked">
-          <bool>true</bool>
-         </property>
-        </widget>
-       </item>
-      </layout>
-     </widget>
-     <widget class="QWidget" name="horizontalLayoutWidget_9">
-      <property name="geometry">
-       <rect>
-        <x>0</x>
-        <y>50</y>
-        <width>471</width>
-        <height>41</height>
-       </rect>
-      </property>
-      <layout class="QHBoxLayout" name="channelGroupBox_2">
-       <item>
-        <widget class="QCheckBox" name="ai8CheckBox">
-         <property name="text">
-          <string>Ai8</string>
-         </property>
-         <property name="checked">
-          <bool>true</bool>
-         </property>
-        </widget>
-       </item>
-       <item>
-        <widget class="QCheckBox" name="ai9CheckBox">
-         <property name="text">
-          <string>Ai9</string>
-         </property>
-         <property name="checked">
-          <bool>true</bool>
-         </property>
-        </widget>
-       </item>
-       <item>
-        <widget class="QCheckBox" name="ai10CheckBox">
-         <property name="text">
-          <string>Ai10</string>
-         </property>
-         <property name="checked">
-          <bool>true</bool>
-         </property>
-        </widget>
-       </item>
-       <item>
-        <widget class="QCheckBox" name="ai11CheckBox">
-         <property name="text">
-          <string>Ai11</string>
-         </property>
-         <property name="checked">
-          <bool>true</bool>
-         </property>
-        </widget>
-       </item>
-       <item>
-        <widget class="QCheckBox" name="ai12CheckBox">
-         <property name="text">
-          <string>Ai12</string>
-         </property>
-         <property name="checked">
-          <bool>true</bool>
-         </property>
-        </widget>
-       </item>
-       <item>
-        <widget class="QCheckBox" name="ai13CheckBox">
-         <property name="text">
-          <string>Ai13</string>
-         </property>
-         <property name="checked">
-          <bool>true</bool>
-         </property>
-        </widget>
-       </item>
-       <item>
-        <widget class="QCheckBox" name="ai14CheckBox">
-         <property name="text">
-          <string>Ai14</string>
-         </property>
-         <property name="checked">
-          <bool>true</bool>
-         </property>
-        </widget>
-       </item>
-       <item>
-        <widget class="QCheckBox" name="ai15CheckBox">
-         <property name="text">
-          <string>Ai15</string>
-         </property>
-         <property name="checked">
-          <bool>true</bool>
-         </property>
-        </widget>
-       </item>
-      </layout>
-     </widget>
+     <layout class="QVBoxLayout" name="verticalLayout">
+      <item>
+       <layout class="QHBoxLayout" name="channelGroupBox">
+        <item>
+         <widget class="QCheckBox" name="ai0CheckBox">
+          <property name="text">
+           <string>Ai0</string>
+          </property>
+          <property name="checked">
+           <bool>true</bool>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QCheckBox" name="ai1CheckBox">
+          <property name="text">
+           <string>Ai1</string>
+          </property>
+          <property name="checked">
+           <bool>true</bool>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QCheckBox" name="ai2CheckBox">
+          <property name="text">
+           <string>Ai2</string>
+          </property>
+          <property name="checked">
+           <bool>true</bool>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QCheckBox" name="ai3CheckBox">
+          <property name="text">
+           <string>Ai3</string>
+          </property>
+          <property name="checked">
+           <bool>true</bool>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QCheckBox" name="ai4CheckBox">
+          <property name="text">
+           <string>Ai4</string>
+          </property>
+          <property name="checked">
+           <bool>true</bool>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QCheckBox" name="ai5CheckBox">
+          <property name="text">
+           <string>Ai5</string>
+          </property>
+          <property name="checked">
+           <bool>true</bool>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QCheckBox" name="ai6CheckBox">
+          <property name="text">
+           <string>Ai6</string>
+          </property>
+          <property name="checked">
+           <bool>true</bool>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QCheckBox" name="ai7CheckBox">
+          <property name="text">
+           <string>Ai7</string>
+          </property>
+          <property name="checked">
+           <bool>true</bool>
+          </property>
+         </widget>
+        </item>
+       </layout>
+      </item>
+      <item>
+       <layout class="QHBoxLayout" name="channelGroupBox_2">
+        <item>
+         <widget class="QCheckBox" name="ai8CheckBox">
+          <property name="text">
+           <string>Ai8</string>
+          </property>
+          <property name="checked">
+           <bool>true</bool>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QCheckBox" name="ai9CheckBox">
+          <property name="text">
+           <string>Ai9</string>
+          </property>
+          <property name="checked">
+           <bool>true</bool>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QCheckBox" name="ai10CheckBox">
+          <property name="text">
+           <string>Ai10</string>
+          </property>
+          <property name="checked">
+           <bool>true</bool>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QCheckBox" name="ai11CheckBox">
+          <property name="text">
+           <string>Ai11</string>
+          </property>
+          <property name="checked">
+           <bool>true</bool>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QCheckBox" name="ai12CheckBox">
+          <property name="text">
+           <string>Ai12</string>
+          </property>
+          <property name="checked">
+           <bool>true</bool>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QCheckBox" name="ai13CheckBox">
+          <property name="text">
+           <string>Ai13</string>
+          </property>
+          <property name="checked">
+           <bool>true</bool>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QCheckBox" name="ai14CheckBox">
+          <property name="text">
+           <string>Ai14</string>
+          </property>
+          <property name="checked">
+           <bool>true</bool>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QCheckBox" name="ai15CheckBox">
+          <property name="text">
+           <string>Ai15</string>
+          </property>
+          <property name="checked">
+           <bool>true</bool>
+          </property>
+         </widget>
+        </item>
+       </layout>
+      </item>
+     </layout>
     </widget>
     <widget class="QWidget" name="horizontalLayoutWidget_8">
      <property name="geometry">
@@ -650,16 +636,6 @@
        <widget class="QLabel" name="label_6">
         <property name="text">
          <string>Time_window</string>
-        </property>
-       </widget>
-      </item>
-      <item>
-       <widget class="QSpinBox" name="timeWindowSpinBox">
-        <property name="minimum">
-         <number>1</number>
-        </property>
-        <property name="maximum">
-         <number>10</number>
         </property>
        </widget>
       </item>
@@ -1391,7 +1367,7 @@ border-radius: 18px;
     <rect>
      <x>0</x>
      <y>0</y>
-     <width>1375</width>
+     <width>1378</width>
      <height>33</height>
     </rect>
    </property>

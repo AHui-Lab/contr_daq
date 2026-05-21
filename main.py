@@ -44,7 +44,7 @@ class MainWindow:
     AI_CHANNELS = [f"ai{i}" for i in range(8)]
     def __init__(self):
         super().__init__()
-        self.ui=QUiLoader().load('daq_ui.ui')
+        self.ui=QUiLoader().load('test.ui')
 
         self.ui.setWindowFlag(Qt.Window, True)
         self.ui.setWindowFlag(Qt.WindowMinimizeButtonHint, True)
