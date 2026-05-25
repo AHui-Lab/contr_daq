@@ -6,10 +6,16 @@ import numpy as np
 
 
 class ForceThread(QThread):
-    data_ready = Signal(float, list)   # total_force, [ch1,ch2,ch3,ch4]
+    data_ready = Signal(float, list)  # total_force, [ch1, ch2, ...]
     started_ok = Signal(bool)
 
-    FRAME_LEN = 3 + 16 + 2   # addr + func + bytecount + data(16) + CRC = 21
+    SLAVE_ADDR = 0x01
+    FUNC_READ_HOLDING = 0x03
+    GROSS_WEIGHT_START = 450  # decimal register offset, encoded as 0x01C2 in Modbus frames
+    CHANNEL_COUNT = 4
+    REG_COUNT = CHANNEL_COUNT * 2
+    BYTE_COUNT = REG_COUNT * 2
+    FRAME_LEN = 3 + BYTE_COUNT + 2
 
     def __init__(self, port="COM11", baudrate=9600):
         super().__init__()
@@ -17,9 +23,6 @@ class ForceThread(QThread):
         self.baudrate = baudrate
         self.running = False
 
-    # =========================
-    # CRC16 (Modbus)
-    # =========================
     def crc16(self, data):
         crc = 0xFFFF
         for b in data:
@@ -38,9 +41,43 @@ class ForceThread(QThread):
         crc_calc = self.crc16(data)
         return crc_recv == crc_calc
 
-    # =========================
-    # 主线程
-    # =========================
+    def build_read_command(self):
+        cmd = bytearray([
+            self.SLAVE_ADDR,
+            self.FUNC_READ_HOLDING,
+            (self.GROSS_WEIGHT_START >> 8) & 0xFF,
+            self.GROSS_WEIGHT_START & 0xFF,
+            (self.REG_COUNT >> 8) & 0xFF,
+            self.REG_COUNT & 0xFF,
+        ])
+        crc = self.crc16(cmd)
+        cmd.extend([crc & 0xFF, (crc >> 8) & 0xFF])
+        return bytes(cmd)
+
+    def parse_frame(self, frame):
+        if len(frame) != self.FRAME_LEN:
+            raise ValueError("invalid frame length")
+        if frame[0] != self.SLAVE_ADDR or frame[1] != self.FUNC_READ_HOLDING:
+            raise ValueError("invalid frame header")
+        if frame[2] != self.BYTE_COUNT:
+            raise ValueError("invalid byte count")
+        if not self.check_crc(frame):
+            raise ValueError("invalid crc")
+
+        vals = []
+        for ch in range(self.CHANNEL_COUNT):
+            base = 3 + ch * 4
+            raw_val = (
+                (frame[base] << 24)
+                | (frame[base + 1] << 16)
+                | (frame[base + 2] << 8)
+                | frame[base + 3]
+            )
+            if raw_val >= (1 << 31):
+                raw_val -= (1 << 32)
+            vals.append(float(raw_val))
+        return np.array(vals, dtype=float)
+
     def run(self):
         self.running = True
 
@@ -51,88 +88,47 @@ class ForceThread(QThread):
                 bytesize=serial.EIGHTBITS,
                 parity=serial.PARITY_NONE,
                 stopbits=serial.STOPBITS_ONE,
-                timeout=0.1
+                timeout=0.1,
             )
             self.started_ok.emit(True)
         except Exception as e:
-            print("[Force] 打开串口失败:", e)
+            print("[Force] open serial failed:", e)
             self.started_ok.emit(False)
             return
 
-        # 👉 读 4通道重量（地址450，读8寄存器）
-        cmd = bytes([1, 3, 1, 194, 0, 8, 228, 12])
-
+        # Ruilide multi-channel read:
+        # 01 03 01 C2 00 08 E4 0C
+        # Reads the first 4 gross-weight channels, each as a signed 32-bit integer.
+        cmd = self.build_read_command()
         buffer = bytearray()
 
         while self.running:
             try:
-                # 1️⃣ 发送命令
                 ser.write(cmd)
 
-                # 2️⃣ 读数据（累积缓冲区）
                 time.sleep(0.02)
                 buffer.extend(ser.read(ser.in_waiting or 1))
 
-                # 3️⃣ 尝试解析完整帧
                 while len(buffer) >= self.FRAME_LEN:
-
-                    # 找帧头
-                    if buffer[0] != 1 or buffer[1] != 3:
+                    if buffer[0] != self.SLAVE_ADDR or buffer[1] != self.FUNC_READ_HOLDING:
                         buffer.pop(0)
                         continue
 
-                    frame = buffer[:self.FRAME_LEN]
-
-                    # CRC校验
-                    if not self.check_crc(frame):
+                    frame = bytes(buffer[:self.FRAME_LEN])
+                    try:
+                        vals = self.parse_frame(frame)
+                    except ValueError:
                         buffer.pop(0)
                         continue
-
-                    # 字节数校验
-                    byte_count = frame[2]
-                    if byte_count != 16:
-                        buffer.pop(0)
-                        continue
-
-                    # =========================
-                    # 解析4通道（32bit）
-                    # =========================
-                    vals = []
-                    for ch in range(4):
-                        base = 3 + ch * 4
-
-                        b1 = frame[base]
-                        b2 = frame[base + 1]
-                        b3 = frame[base + 2]
-                        b4 = frame[base + 3]
-
-                        raw_val = (b1 << 24) | (b2 << 16) | (b3 << 8) | b4
-
-                        # 32bit有符号
-                        if raw_val >= (1 << 31):
-                            raw_val -= (1 << 32)
-
-                        # ⚠️ 这里暂时不缩放（先保证正确）
-                        vals.append(raw_val/1000)
-
-                    vals = np.array(vals)
 
                     total_force = float(np.sum(vals))
-
-                    vals = np.round(vals)
-                    total_force = round(total_force)
-
-                    # 发信号
                     self.data_ready.emit(total_force, vals.tolist())
-
-                    # 移除已解析帧
                     buffer = buffer[self.FRAME_LEN:]
 
-                # 控制刷新率
                 self.msleep(20)
 
             except Exception as e:
-                print("[Force] 读取异常:", e)
+                print("[Force] read failed:", e)
 
         if ser and ser.is_open:
             ser.close()
