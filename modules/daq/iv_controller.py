@@ -83,7 +83,6 @@ class IVController(QObject):
             amplify_gain=self.amplify_gain,
         )
 
-        self.worker.point_acquired.connect(self.plot.add_iv_point)
         self.worker.point_acquired.connect(self.on_iv_point)
         self.worker.finished.connect(self.on_finished)
         self.worker.error.connect(self.on_error)
@@ -121,7 +120,7 @@ class IVController(QObject):
         self.plot.add_iv_point(ch, voltage, current_mA)
 
         # 同步更新 LED
-        self.led_indicator.update_from_currents({
+        self.led_manager.update_from_currents({
             ch: current_mA
         })
 
