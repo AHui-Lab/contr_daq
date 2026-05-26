@@ -1,5 +1,4 @@
 # modules/force/force_controller.py
-import time
 from collections import deque
 
 import numpy as np
@@ -120,7 +119,6 @@ class ForceController:
 
         if self.recorder.recording:
             self.recorder.add_force_data(
-                timestamp=time.time(),
                 total_force=corrected_total,
                 vals=corrected_vals.tolist(),
             )
