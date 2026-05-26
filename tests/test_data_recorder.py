@@ -85,3 +85,19 @@ def test_save_writes_merged_file_without_dropping_daq_rows(monkeypatch, tmp_path
     assert rows[1][2:] == ["", "", "", "", "", ""]
     assert float(rows[3][2]) == pytest.approx(0.0015)
     assert rows[3][3:] == ["10.0", "1.0", "2.0", "3.0", "4.0"]
+
+
+def test_force_chunk_uses_sample_rate_timebase(monkeypatch, tmp_path):
+    monkeypatch.setattr(data_recorder.time, "time", lambda: 600.0)
+
+    recorder = data_recorder.DataRecorder(save_dir=tmp_path)
+    recorder.start()
+    recorder.add_force_chunk(
+        rows=np.array([[1.0, 2.0, 3.0, 4.0], [2.0, 4.0, 6.0, 8.0]]),
+        sample_rate=1000,
+    )
+
+    assert recorder.force_buffer == [
+        [0.0, 10.0, 1.0, 2.0, 3.0, 4.0],
+        [0.001, 20.0, 2.0, 4.0, 6.0, 8.0],
+    ]

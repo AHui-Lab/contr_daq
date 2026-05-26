@@ -54,6 +54,11 @@ class DummyTabWidget:
     def __init__(self, count):
         self._count = count
         self.labels = {}
+        self.style = ""
+        self.minimum_width = None
+        self.maximum_width = None
+        self.minimum_height = None
+        self.maximum_height = None
 
     def count(self):
         return self._count
@@ -65,21 +70,56 @@ class DummyTabWidget:
         self._count -= 1
         self.labels.pop(index, None)
 
+    def setStyleSheet(self, style):
+        self.style = style
+
+    def setMaximumHeight(self, height):
+        self.maximum_height = height
+
+    def setMinimumHeight(self, height):
+        self.minimum_height = height
+
+    def setMinimumWidth(self, width):
+        self.minimum_width = width
+
+    def setMaximumWidth(self, width):
+        self.maximum_width = width
+
 
 class DummyGroupBox:
     def __init__(self):
         self.title = ""
+        self.style = ""
+        self.minimum_height = None
+        self.maximum_height = None
 
     def setTitle(self, title):
         self.title = title
+
+    def setStyleSheet(self, style):
+        self.style = style
+
+    def setMinimumHeight(self, height):
+        self.minimum_height = height
+
+    def setMaximumHeight(self, height):
+        self.maximum_height = height
 
 
 class DummyTextWidget:
     def __init__(self):
         self.text = ""
+        self.minimum_width = None
+        self.maximum_height = None
 
     def setText(self, text):
         self.text = text
+
+    def setMinimumWidth(self, width):
+        self.minimum_width = width
+
+    def setMaximumHeight(self, height):
+        self.maximum_height = height
 
 
 class DummyStatusBar:
@@ -98,6 +138,8 @@ class DummyLayout:
     def __init__(self):
         self.margins = None
         self.spacing = None
+        self.widgets = {}
+        self.column_stretches = {}
 
     def setContentsMargins(self, *margins):
         self.margins = margins
@@ -105,13 +147,28 @@ class DummyLayout:
     def setSpacing(self, spacing):
         self.spacing = spacing
 
+    def removeWidget(self, widget):
+        for key, value in list(self.widgets.items()):
+            if value is widget:
+                self.widgets.pop(key)
+
+    def addWidget(self, widget, row, column):
+        self.widgets[(row, column)] = widget
+
+    def setColumnStretch(self, column, stretch):
+        self.column_stretches[column] = stretch
+
 
 class DummySurface:
     def __init__(self):
         self.policy = None
+        self.minimum_height = None
 
     def setSizePolicy(self, horizontal, vertical):
         self.policy = (horizontal, vertical)
+
+    def setMinimumHeight(self, height):
+        self.minimum_height = height
 
 
 class DummyUi:
@@ -131,13 +188,30 @@ class DummyUi:
         self.groupBox_7 = DummyGroupBox()
         self.startStopButton = DummyTextWidget()
         self.aoControlButton = DummyTextWidget()
+        self.recorderStartButton = DummyTextWidget()
+        self.recorderStopButton = DummyTextWidget()
+        self.forceStartButton = DummyTextWidget()
+        self.forceZeroButton = DummyTextWidget()
         self.Emergency_Stop = DummyTextWidget()
+        self.forceModeLabel = DummyTextWidget()
+        self.forceModeComboBox = DummyTextWidget()
+        self.forceDeviceLabel = DummyTextWidget()
+        self.forceDeviceComboBox = DummyTextWidget()
+        self.forceSampleRateLabel = DummyTextWidget()
+        self.forceSampleRateSpinBox = DummyTextWidget()
+        self.forceTerminalConfigLabel = DummyTextWidget()
+        self.forceTerminalConfigComboBox = DummyTextWidget()
+        self.forceVoltageRangeLabel = DummyTextWidget()
+        self.forceVoltageRangeComboBox = DummyTextWidget()
+        self.forceFullScaleLabel = DummyTextWidget()
+        self.forceFullScaleSpinBox = DummyTextWidget()
         self.totalForceLabel = DummyTextWidget()
         self.Force1_Label = DummyTextWidget()
         self.Force2_Label = DummyTextWidget()
         self.Force3_Label = DummyTextWidget()
         self.Force4_Label = DummyTextWidget()
         self.gridLayout_3 = DummyLayout()
+        self.gridLayout_6 = DummyLayout()
         self.daqPlotWidget = DummySurface()
         self.forcePlotWidget = DummySurface()
         self.Camera1 = DummySurface()
@@ -167,6 +241,8 @@ def test_setup_names_workbench_sections_and_status_bar():
     assert ui.groupBox_7.title == "Channel Activity"
     assert ui.startStopButton.text == "Start DAQ"
     assert ui.Emergency_Stop.text == "Emergency Stop"
+    assert ui.forceDeviceLabel.text == "Force DAQ"
+    assert ui.forceVoltageRangeLabel.text == "Voltage"
     assert ui.statusBar().message == "Workbench ready"
     assert len(ui.statusBar().widgets) == 5
     assert binder.status_labels["daq"].text == "DAQ: Sampling"
@@ -183,3 +259,43 @@ def test_setup_removes_unused_placeholder_tabs_and_defaults_force_labels():
     assert ui.tabWidget_3.count() == 1
     assert ui.totalForceLabel.text == "Total: 0.00 N"
     assert ui.Force1_Label.text == "P1: 0.00"
+
+
+def test_setup_keeps_channel_and_force_controls_readable():
+    ui = DummyUi()
+    binder = ViewBinder(ui, lambda: AppState())
+
+    binder.setup()
+
+    assert ui.groupBox_2.minimum_height >= 118
+    assert ui.groupBox_4.minimum_height >= 155
+    assert ui.groupBox_4.maximum_height >= 175
+    assert ui.daqPlotWidget.minimum_height >= 225
+    assert ui.forcePlotWidget.minimum_height >= 185
+    assert ui.groupBox_5.minimum_height >= 180
+    assert ui.groupBox_6.minimum_height >= 230
+
+
+def test_setup_compacts_force_panel_into_tool_rows():
+    ui = DummyUi()
+    binder = ViewBinder(ui, lambda: AppState())
+
+    binder.setup()
+
+    assert ui.gridLayout_6.widgets[(0, 1)] is ui.forceModeComboBox
+    assert ui.gridLayout_6.widgets[(0, 4)] is ui.forceStartButton
+    assert ui.gridLayout_6.widgets[(1, 5)] is ui.forceVoltageRangeComboBox
+    assert ui.gridLayout_6.widgets[(2, 2)] is ui.totalForceLabel
+    assert ui.gridLayout_6.widgets[(2, 6)] is ui.Force4_Label
+
+
+def test_setup_prioritizes_camera_and_keeps_motion_as_sidebar():
+    ui = DummyUi()
+    binder = ViewBinder(ui, lambda: AppState())
+
+    binder.setup()
+
+    assert ui.tabWidget.minimum_width >= 700
+    assert ui.tabWidget.minimum_height >= 640
+    assert ui.tabWidget_3.minimum_width >= 340
+    assert ui.tabWidget_3.maximum_width <= 430

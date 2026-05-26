@@ -18,6 +18,7 @@ class DataRecorder:
         self.force_buffer = []
         self.daq_channels = []
         self.daq_sample_index = 0
+        self.force_sample_index = 0
 
     def start(self):
         if self.recording:
@@ -63,6 +64,16 @@ class DataRecorder:
 
         t = time.time() - self.start_time
         self.force_buffer.append([t, total_force] + list(vals))
+
+    def add_force_chunk(self, rows, sample_rate):
+        if not self.recording:
+            return
+
+        for row in rows:
+            vals = list(row)
+            t = self.force_sample_index / sample_rate
+            self.force_buffer.append([t, sum(vals)] + vals)
+            self.force_sample_index += 1
 
     def save(self):
         if not self.daq_buffer and not self.force_buffer:

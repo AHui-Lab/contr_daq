@@ -22,7 +22,8 @@ from utils.log import bind_log_widget
 
 
 BASE_DIR = Path(__file__).resolve().parent
-UI_FILE = BASE_DIR / "test.ui"
+ORIGINAL_UI_FILE = BASE_DIR / "test.ui"
+UI_FILE = BASE_DIR / "test_optimized.ui"
 
 
 class MainWindow:

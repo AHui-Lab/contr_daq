@@ -21,7 +21,7 @@
     color: #ECECEC</string>
   </property>
   <widget class="QWidget" name="centralwidget">
-   <layout class="QGridLayout" name="gridLayout_3">
+   <layout class="QGridLayout" name="gridLayout_3" rowstretch="5,3,1" columnstretch="3,5,2">
     <item row="0" column="1" rowspan="2">
      <widget class="QTabWidget" name="tabWidget">
       <property name="sizePolicy">
@@ -806,7 +806,7 @@ QGroupBox::title {
           <property name="title">
            <string>Data_Recorder</string>
           </property>
-          <layout class="QVBoxLayout" name="verticalLayout_2" stretch="1,1,2,1,2,1">
+          <layout class="QVBoxLayout" name="verticalLayout_2" stretch="0,0,6,0,6,0">
            <property name="spacing">
             <number>2</number>
            </property>
@@ -832,8 +832,8 @@ QGroupBox::title {
              </property>
              <property name="maximumSize">
               <size>
-               <width>500</width>
-               <height>150</height>
+               <width>16777215</width>
+               <height>120</height>
               </size>
              </property>
              <property name="styleSheet">
@@ -1204,8 +1204,8 @@ QTabBar::tab:hover:!selected {
              </property>
              <property name="maximumSize">
               <size>
-               <width>500</width>
-               <height>16777215</height>
+               <width>16777215</width>
+               <height>150</height>
               </size>
              </property>
              <property name="title">
@@ -1500,12 +1500,12 @@ QTabBar::tab:hover:!selected {
              <property name="minimumSize">
               <size>
                <width>0</width>
-               <height>0</height>
+               <height>240</height>
               </size>
              </property>
              <property name="maximumSize">
               <size>
-               <width>500</width>
+               <width>16777215</width>
                <height>16777215</height>
               </size>
              </property>
@@ -1524,8 +1524,8 @@ QTabBar::tab:hover:!selected {
              </property>
              <property name="maximumSize">
               <size>
-               <width>500</width>
-               <height>16777215</height>
+               <width>16777215</width>
+               <height>95</height>
               </size>
              </property>
              <layout class="QGridLayout" name="gridLayout_5">
@@ -1635,16 +1635,22 @@ QTabBar::tab:hover:!selected {
             </widget>
            </item>
            <item>
-            <widget class="QWidget" name="forcePlotWidget" native="true">
-             <property name="sizePolicy">
-              <sizepolicy hsizetype="Preferred" vsizetype="Preferred">
-               <horstretch>0</horstretch>
-               <verstretch>2</verstretch>
-              </sizepolicy>
-             </property>
-             <property name="maximumSize">
-              <size>
-               <width>500</width>
+           <widget class="QWidget" name="forcePlotWidget" native="true">
+            <property name="sizePolicy">
+             <sizepolicy hsizetype="Preferred" vsizetype="Preferred">
+              <horstretch>0</horstretch>
+              <verstretch>2</verstretch>
+             </sizepolicy>
+            </property>
+            <property name="minimumSize">
+             <size>
+              <width>0</width>
+              <height>220</height>
+             </size>
+            </property>
+            <property name="maximumSize">
+             <size>
+              <width>16777215</width>
                <height>16777215</height>
               </size>
              </property>
@@ -1663,8 +1669,8 @@ QTabBar::tab:hover:!selected {
              </property>
              <property name="maximumSize">
               <size>
-               <width>500</width>
-               <height>16777215</height>
+               <width>16777215</width>
+               <height>260</height>
               </size>
              </property>
              <property name="font">
