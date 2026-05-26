@@ -14,6 +14,7 @@ from modules.daq.daq_plot import DaqPlot
 from modules.daq.iv_controller import IVController
 from modules.force.force_controller import ForceController
 from modules.motion.motion_controller import MotionController
+from modules.recorder.data_recorder import DataRecorder
 from modules.ui.led_indicator import LedIndicatorManager
 from modules.ui.theme import apply_graph_theme, build_stylesheet, patch_led_manager
 from modules.ui.view_binder import ViewBinder
@@ -43,17 +44,19 @@ class MainWindow:
         self.plot = DaqPlot(self.ui.daqPlotWidget, self.ui)
         self.led_manager = LedIndicatorManager(self.ui, threshold_mA=0.5)
         patch_led_manager(self.led_manager)
+        self.recorder = DataRecorder()
 
         self.daq_controller = DaqController(
             self.ui,
             self.plot,
             self.led_manager,
+            recorder=self.recorder,
         )
         self.ao_controller = AOController(self.ui)
         bind_log_widget(self.ui.logTextEdit)
 
         self.motion_controller = MotionController(self.ui)
-        self.force_controller = ForceController(self.ui)
+        self.force_controller = ForceController(self.ui, recorder=self.recorder)
         self.iv_controller = IVController(
             ui=self.ui,
             daq_plot=self.plot,
@@ -116,12 +119,8 @@ class MainWindow:
         return bool(thread and thread.isRunning())
 
     def _recording_active(self) -> bool:
-        for controller_name in ("daq_controller", "force_controller"):
-            controller = getattr(self, controller_name, None)
-            recorder = getattr(controller, "recorder", None)
-            if recorder is not None and recorder.recording:
-                return True
-        return False
+        recorder = getattr(self, "recorder", None)
+        return bool(recorder and recorder.recording)
 
 
 def main() -> int:

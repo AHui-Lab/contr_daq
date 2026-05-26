@@ -14,7 +14,7 @@ class ForceController:
     ZERO_STD_LIMIT = 2.0
     ZERO_TREND_LIMIT = 3.0
 
-    def __init__(self, ui):
+    def __init__(self, ui, recorder=None):
         self.ui = ui
 
         self.running = False
@@ -26,7 +26,7 @@ class ForceController:
 
         self.plot = ForcePlot(self.ui.forcePlotWidget, time_window=10.0)
         self.thread = None
-        self.recorder = DataRecorder()
+        self.recorder = recorder or DataRecorder()
 
         self.ui.forceStartButton.clicked.connect(self.toggle)
         self.ui.forceZeroButton.clicked.connect(self.zero)

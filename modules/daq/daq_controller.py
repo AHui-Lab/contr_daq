@@ -6,7 +6,7 @@ import numpy as np
 from modules.recorder.data_recorder import DataRecorder
 
 class DaqController:
-    def __init__(self, ui, plot, led_manager):
+    def __init__(self, ui, plot, led_manager, recorder=None):
         self.ui = ui
         self.plot = plot
         self.led_manager = led_manager
@@ -26,7 +26,7 @@ class DaqController:
         # ===== 初始化 =====
         self.refresh_devices()
 
-        self.recorder = DataRecorder()
+        self.recorder = recorder or DataRecorder()
 
     # --------------------------------------------------
     # 枚举 NI 设备
@@ -113,10 +113,13 @@ class DaqController:
             self.led_manager.update_from_currents(currents)
             if self.recorder.recording:
                 # shape: (chunk_size, 通道数)
-                stacked = np.vstack([data[ch] for ch in data]).T
-
-                for row in stacked:
-                    self.recorder.add_daq_data(row)
+                channel_names = list(data.keys())
+                stacked = np.vstack([data[ch] for ch in channel_names]).T
+                self.recorder.add_daq_chunk(
+                    rows=stacked,
+                    sample_rate=fs,
+                    channels=channel_names,
+                )
 
         self.thread.data_ready.connect(on_daq_data)
 
