@@ -2,7 +2,7 @@ import sys
 from pathlib import Path
 
 import pyqtgraph as pg
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import Qt
 from PySide6.QtUiTools import QUiLoader
 from PySide6.QtWidgets import QApplication
 
@@ -17,6 +17,7 @@ from modules.motion.motion_controller import MotionController
 from modules.recorder.data_recorder import DataRecorder
 from modules.ui.led_indicator import LedIndicatorManager
 from modules.ui.theme import apply_graph_theme, build_stylesheet, patch_led_manager
+from modules.ui.update_scheduler import UiUpdateScheduler
 from modules.ui.view_binder import ViewBinder
 from utils.log import bind_log_widget
 
@@ -65,9 +66,12 @@ class MainWindow:
         )
         self.view_binder.refresh_static_text()
 
-        self.timer = QTimer()
-        self.timer.timeout.connect(self.update_all_ui)
-        self.timer.start(30)
+        self.update_scheduler = UiUpdateScheduler(
+            camera_callback=self.update_camera_ui,
+            plot_callback=self.update_plot_ui,
+            status_callback=self.update_status_ui,
+        )
+        self.update_scheduler.start()
 
     def current_state(self) -> AppState:
         return AppState(
@@ -84,15 +88,22 @@ class MainWindow:
         )
 
     def update_all_ui(self):
+        self.update_camera_ui()
+        self.update_plot_ui()
+        self.update_status_ui()
+
+    def update_camera_ui(self):
         if hasattr(self, "camera_controller_1"):
             self.camera_controller_1.update_ui()
 
         if hasattr(self, "camera_controller_2"):
             self.camera_controller_2.update_ui()
 
+    def update_plot_ui(self):
         if hasattr(self, "force_controller"):
             self.force_controller.update_ui()
 
+    def update_status_ui(self):
         self.view_binder.update_status()
 
     def closeEvent(self, event):
@@ -107,6 +118,9 @@ class MainWindow:
         if hasattr(self, "force_controller") and self.force_controller.thread:
             self.force_controller.stop()
 
+        if hasattr(self, "motion_controller"):
+            self.motion_controller.shutdown()
+
         event.accept()
 
     def _camera_running(self, controller_name: str) -> bool:
@@ -116,8 +130,7 @@ class MainWindow:
     def _motion_loop_running(self) -> bool:
         if not hasattr(self, "motion_controller"):
             return False
-        thread = self.motion_controller.loop_thread
-        return bool(thread and thread.isRunning())
+        return self.motion_controller.loop_running
 
     def _recording_active(self) -> bool:
         recorder = getattr(self, "recorder", None)

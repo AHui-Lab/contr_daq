@@ -23,7 +23,7 @@ def test_optimized_ui_gives_plot_regions_room_to_expand():
     daq_plot = root.find(".//widget[@name='daqPlotWidget']")
     force_plot = root.find(".//widget[@name='forcePlotWidget']")
 
-    assert main_layout.attrib["columnstretch"] == "3,5,2"
+    assert main_layout.attrib["columnstretch"] == "4,4,2"
     assert main_layout.attrib["rowstretch"] == "5,3,1"
     assert acquisition_layout.attrib["stretch"] == "0,0,6,0,6,0"
     assert _maximum_width(daq_plot) == 16777215

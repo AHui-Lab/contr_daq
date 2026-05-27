@@ -1,0 +1,472 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>contr_daq UI Layout Options</title>
+  <style>
+    :root {
+      --bg: #1e1e2f;
+      --panel: #24263a;
+      --panel-2: #171b28;
+      --line: #3d4b64;
+      --text: #f4f7fb;
+      --muted: #aab6c8;
+      --accent: #29c7ff;
+      --green: #26e47c;
+      --warn: #ffbf57;
+      --danger: #ef4d45;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      background: #101420;
+      color: var(--text);
+      font: 13px/1.35 "Segoe UI", Arial, sans-serif;
+    }
+
+    .toolbar {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      padding: 12px 16px;
+      background: #111827;
+      border-bottom: 1px solid #263148;
+    }
+
+    .toolbar strong { color: var(--warn); }
+
+    .viewport-switch {
+      margin-left: auto;
+      display: flex;
+      gap: 6px;
+    }
+
+    button {
+      border: 1px solid #3f5877;
+      background: #162337;
+      color: var(--text);
+      border-radius: 4px;
+      padding: 6px 10px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    button.active {
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+
+    .stage {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(420px, 1fr));
+      gap: 16px;
+      padding: 16px;
+      overflow-x: auto;
+    }
+
+    .option {
+      min-width: 420px;
+      border: 1px solid #33445c;
+      border-radius: 8px;
+      background: #151a28;
+      overflow: hidden;
+    }
+
+    .option-header {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 10px 12px;
+      background: #20273a;
+      border-bottom: 1px solid #33445c;
+    }
+
+    .option-title {
+      font-size: 14px;
+      font-weight: 800;
+      color: var(--warn);
+    }
+
+    .tag {
+      color: var(--accent);
+      white-space: nowrap;
+    }
+
+    .window {
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      padding: 8px;
+      background: var(--bg);
+      display: grid;
+      gap: 8px;
+      min-height: 520px;
+    }
+
+    .compact .window {
+      aspect-ratio: auto;
+      height: 520px;
+    }
+
+    .wide .window {
+      aspect-ratio: 16 / 9;
+      min-height: 600px;
+    }
+
+    .panel {
+      min-width: 0;
+      min-height: 0;
+      border: 1px solid var(--line);
+      background: var(--panel);
+      border-radius: 5px;
+      padding: 8px;
+      overflow: hidden;
+    }
+
+    .panel-title {
+      color: var(--warn);
+      font-weight: 800;
+      margin-bottom: 7px;
+      white-space: nowrap;
+    }
+
+    .plot {
+      background:
+        linear-gradient(#2b3446 1px, transparent 1px),
+        linear-gradient(90deg, #2b3446 1px, transparent 1px),
+        #05090e;
+      background-size: 18px 18px;
+      border: 1px solid #233049;
+      min-height: 78px;
+      display: grid;
+      place-items: center;
+      color: #7390aa;
+    }
+
+    .camera {
+      background: #010304;
+      display: grid;
+      place-items: center;
+      color: #8aa2ba;
+      border-radius: 4px;
+      border: 1px solid #22304a;
+    }
+
+    .row {
+      display: grid;
+      gap: 6px;
+      align-items: center;
+    }
+
+    .two { grid-template-columns: 1fr 1fr; }
+    .three { grid-template-columns: repeat(3, 1fr); }
+    .four { grid-template-columns: repeat(4, 1fr); }
+
+    .field, .metric {
+      min-width: 0;
+      border: 1px solid #394962;
+      background: #1d2032;
+      border-radius: 4px;
+      padding: 6px 8px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .metric {
+      color: #ffffff;
+      font-family: Consolas, "Cascadia Mono", monospace;
+      font-size: 12px;
+    }
+
+    .primary { border-color: #1ea96f; }
+    .danger { background: var(--danger); border-color: var(--danger); color: #fff; }
+
+    .status {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 4px;
+      font-size: 11px;
+    }
+
+    .pill {
+      border: 1px solid #35536e;
+      background: #0d1c2b;
+      padding: 4px 6px;
+      text-align: center;
+      white-space: nowrap;
+    }
+
+    .leds {
+      display: grid;
+      grid-template-columns: repeat(16, 1fr);
+      gap: 5px;
+    }
+
+    .led {
+      height: 12px;
+      border: 1px solid #456273;
+      background: #23323b;
+    }
+
+    .led.on { background: var(--green); }
+
+    /* Option A: current 3-column shape, repaired */
+    .layout-a {
+      grid-template-columns: minmax(300px, 0.95fr) minmax(460px, 1.7fr) minmax(260px, 0.75fr);
+      grid-template-rows: 1fr auto;
+    }
+
+    .layout-a .left {
+      display: grid;
+      grid-template-rows: auto 90px minmax(115px, 1fr) auto minmax(110px, 0.9fr) 152px;
+      gap: 6px;
+    }
+
+    .layout-a .center {
+      display: grid;
+      grid-template-rows: 1fr auto auto;
+      gap: 8px;
+    }
+
+    .layout-a .right {
+      display: grid;
+      grid-template-rows: auto minmax(250px, 1fr);
+      gap: 8px;
+    }
+
+    .layout-a .status { grid-column: 2 / 4; }
+
+    /* Option B: Force moves to its own middle bottom band */
+    .layout-b {
+      grid-template-columns: minmax(280px, 0.9fr) minmax(520px, 1.8fr) minmax(260px, 0.75fr);
+      grid-template-rows: minmax(300px, 1fr) 170px auto;
+    }
+
+    .layout-b .left {
+      display: grid;
+      grid-template-rows: auto 96px 1fr auto;
+      gap: 6px;
+    }
+
+    .layout-b .center {
+      display: grid;
+      grid-template-rows: 1fr auto auto;
+      gap: 8px;
+    }
+
+    .layout-b .right {
+      grid-row: 1 / 3;
+      display: grid;
+      grid-template-rows: auto minmax(250px, 1fr);
+      gap: 8px;
+    }
+
+    .layout-b .force-wide {
+      grid-column: 1 / 3;
+      display: grid;
+      grid-template-columns: 1.2fr 1fr;
+      gap: 8px;
+    }
+
+    .layout-b .status { grid-column: 2 / 4; }
+
+    /* Option C: mode tabs, safest for small windows */
+    .layout-c {
+      grid-template-columns: minmax(360px, 0.8fr) minmax(560px, 1.8fr);
+      grid-template-rows: 1fr auto;
+    }
+
+    .layout-c .left {
+      display: grid;
+      grid-template-rows: auto minmax(170px, 1fr) auto minmax(170px, 1fr);
+      gap: 8px;
+    }
+
+    .layout-c .right {
+      display: grid;
+      grid-template-rows: minmax(360px, 1fr) auto auto;
+      gap: 8px;
+    }
+
+    .layout-c .motion-inline {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    .layout-c .status { grid-column: 1 / 3; }
+
+    .daq-control, .force-control, .motion-control {
+      display: grid;
+      gap: 6px;
+    }
+
+    .daq-control { grid-template-columns: 1fr 1fr 92px; }
+    .force-control { grid-template-columns: 64px 90px 52px 86px 92px 72px; }
+    .force-metrics { grid-template-columns: 1.3fr repeat(4, 1fr); }
+    .motion-control { grid-template-columns: repeat(2, 1fr); }
+
+    .option-note {
+      padding: 10px 12px 12px;
+      color: var(--muted);
+      border-top: 1px solid #27354a;
+      min-height: 72px;
+    }
+  </style>
+</head>
+<body>
+  <div class="toolbar">
+    <strong>contr_daq layout board</strong>
+    <span>Focus: no clipped text, no hidden motion controls, usable at non-maximized size.</span>
+    <div class="viewport-switch">
+      <button class="active" data-mode="compact">1280 x 820</button>
+      <button data-mode="wide">1600 x 900</button>
+    </div>
+  </div>
+
+  <main class="stage compact" id="stage">
+    <section class="option">
+      <div class="option-header">
+        <div class="option-title">A. Repaired Three Columns</div>
+        <div class="tag">least code churn</div>
+      </div>
+      <div class="window layout-a">
+        <div class="left">
+          <div class="panel">
+            <div class="panel-title">Acquisition Control</div>
+            <div class="daq-control">
+              <div class="field">Dev1</div><div class="field">500 Hz</div><button>Start DAQ</button>
+              <div class="field">Dev1/ao0</div><div class="field">AO 0.00</div><button>Output AO</button>
+            </div>
+          </div>
+          <div class="panel">
+            <div class="panel-title">AI Channels</div>
+            <div class="leds">
+              <div class="led on"></div><div class="led on"></div><div class="led on"></div><div class="led on"></div>
+              <div class="led on"></div><div class="led on"></div><div class="led on"></div><div class="led on"></div>
+              <div class="led on"></div><div class="led on"></div><div class="led on"></div><div class="led on"></div>
+              <div class="led on"></div><div class="led on"></div><div class="led on"></div><div class="led on"></div>
+            </div>
+          </div>
+          <div class="plot">DAQ plot</div>
+          <div class="row three"><div class="field">Window 1</div><div class="field">Y Max 0</div><button>Record</button></div>
+          <div class="plot">Force plot</div>
+          <div class="panel">
+            <div class="panel-title">Force Sensor</div>
+            <div class="force-control">
+              <div class="field">Mode</div><div class="field">Analog</div><div class="field">Dev</div><div class="field">Dev2</div><button>Start</button><button>Zero</button>
+              <div class="field">Rate</div><div class="field">2000</div><div class="field">Input</div><div class="field">DIFF</div><div class="field">Range</div><div class="field">0-10V</div>
+            </div>
+            <div class="row force-metrics" style="margin-top:6px">
+              <div class="metric">Total 112.64 N</div><div class="metric">P1 0.00</div><div class="metric">P2 0.00</div><div class="metric">P3 0.00</div><div class="metric">P4 0.00</div>
+            </div>
+          </div>
+        </div>
+        <div class="center">
+          <div class="camera">Camera preview</div>
+          <div class="field">Camera 0</div>
+          <button>Open Camera</button>
+        </div>
+        <div class="right">
+          <div class="panel">
+            <div class="panel-title">Manual Jog</div>
+            <div class="row two"><button>R+</button><button>Z+</button><button>X-</button><button>X+</button><button>R-</button><button>Z-</button></div>
+          </div>
+          <div class="panel">
+            <div class="panel-title">Loop Motion</div>
+            <div class="motion-control">
+              <div class="field">Axis X</div><div class="field">One-way</div>
+              <div class="field">Dist 0.000</div><div class="field">Gap 0.000</div>
+              <div class="field">Times 1</div><div class="field">Speed 1</div>
+              <button>Forward</button><button>Backward</button>
+              <button class="danger" style="grid-column:1 / 3">STOP</button>
+            </div>
+          </div>
+        </div>
+        <div class="status"><div class="pill">DAQ Idle</div><div class="pill">CAMERA Idle</div><div class="pill">MOTION Ready</div><div class="pill">FORCE Idle</div><div class="pill">REC Off</div></div>
+      </div>
+      <div class="option-note">Good if you want minimal changes. Still tight: acquisition, force, and motion all compete for the same 820px height.</div>
+    </section>
+
+    <section class="option">
+      <div class="option-header">
+        <div class="option-title">B. Force As Wide Bottom Band</div>
+        <div class="tag">recommended</div>
+      </div>
+      <div class="window layout-b">
+        <div class="left">
+          <div class="panel">
+            <div class="panel-title">Acquisition Control</div>
+            <div class="daq-control"><div class="field">Dev1</div><div class="field">500 Hz</div><button>Start DAQ</button><div class="field">Dev1/ao0</div><div class="field">AO 0.00</div><button>Output AO</button></div>
+          </div>
+          <div class="panel"><div class="panel-title">AI Channels</div><div class="leds"><div class="led on"></div><div class="led on"></div><div class="led on"></div><div class="led on"></div><div class="led on"></div><div class="led on"></div><div class="led on"></div><div class="led on"></div><div class="led on"></div><div class="led on"></div><div class="led on"></div><div class="led on"></div><div class="led on"></div><div class="led on"></div><div class="led on"></div><div class="led on"></div></div></div>
+          <div class="plot">DAQ plot gets the full left plotting space</div>
+          <div class="row three"><div class="field">Window 1</div><div class="field">Y Max 0</div><button>Record</button></div>
+        </div>
+        <div class="center">
+          <div class="camera">Camera preview</div>
+          <div class="field">Camera 0</div>
+          <button>Open Camera</button>
+        </div>
+        <div class="right">
+          <div class="panel"><div class="panel-title">Manual Jog</div><div class="row two"><button>R+</button><button>Z+</button><button>X-</button><button>X+</button><button>R-</button><button>Z-</button></div></div>
+          <div class="panel"><div class="panel-title">Loop Motion</div><div class="motion-control"><div class="field">Axis X</div><div class="field">One-way</div><div class="field">Dist 0.000</div><div class="field">Gap 0.000</div><div class="field">Times 1</div><div class="field">Speed 1</div><button>Forward</button><button>Backward</button><button class="danger" style="grid-column:1 / 3">STOP</button></div></div>
+        </div>
+        <div class="force-wide">
+          <div class="plot">Force plot wide enough to read axes</div>
+          <div class="panel">
+            <div class="panel-title">Force Sensor</div>
+            <div class="force-control"><div class="field">Mode</div><div class="field">Analog</div><div class="field">Dev</div><div class="field">Dev2</div><button class="primary">Start</button><button>Zero</button><div class="field">Rate</div><div class="field">2000</div><div class="field">Input</div><div class="field">DIFF</div><div class="field">Range</div><div class="field">0-10V</div></div>
+            <div class="row force-metrics" style="margin-top:8px"><div class="metric">Total 112.64 N</div><div class="metric">P1 0.00</div><div class="metric">P2 0.00</div><div class="metric">P3 0.00</div><div class="metric">P4 0.00</div></div>
+          </div>
+        </div>
+        <div class="status"><div class="pill">DAQ Idle</div><div class="pill">CAMERA Idle</div><div class="pill">MOTION Ready</div><div class="pill">FORCE Idle</div><div class="pill">REC Off</div></div>
+      </div>
+      <div class="option-note">Best balance: camera remains dominant, force gets readable width, motion keeps a full right column. Requires moderate Qt layout work.</div>
+    </section>
+
+    <section class="option">
+      <div class="option-header">
+        <div class="option-title">C. Two-Mode Workbench</div>
+        <div class="tag">cleanest small-window UX</div>
+      </div>
+      <div class="window layout-c">
+        <div class="left">
+          <div class="panel"><div class="panel-title">DAQ Controls</div><div class="daq-control"><div class="field">Dev1</div><div class="field">500 Hz</div><button>Start DAQ</button></div></div>
+          <div class="plot">DAQ plot</div>
+          <div class="panel"><div class="panel-title">Force Sensor</div><div class="row two"><div class="field">Analog / Dev2</div><button class="primary">Start</button></div><div class="row force-metrics" style="margin-top:8px"><div class="metric">Total 112.64 N</div><div class="metric">P1 0.00</div><div class="metric">P2 0.00</div><div class="metric">P3 0.00</div><div class="metric">P4 0.00</div></div></div>
+          <div class="plot">Force plot</div>
+        </div>
+        <div class="right">
+          <div class="camera">Camera preview</div>
+          <div class="motion-inline">
+            <div class="panel"><div class="panel-title">Manual Jog</div><div class="row three"><button>R+</button><button>X-</button><button>X+</button><button>R-</button><button>Z+</button><button>Z-</button></div></div>
+            <div class="panel"><div class="panel-title">Loop Motion</div><div class="motion-control"><div class="field">Axis X</div><div class="field">One-way</div><div class="field">Dist 0.000</div><div class="field">Gap 0.000</div><button>Forward</button><button>Backward</button><button class="danger" style="grid-column:1 / 3">STOP</button></div></div>
+          </div>
+          <button>Open Camera</button>
+        </div>
+        <div class="status"><div class="pill">DAQ Idle</div><div class="pill">CAMERA Idle</div><div class="pill">MOTION Ready</div><div class="pill">FORCE Idle</div><div class="pill">REC Off</div></div>
+      </div>
+      <div class="option-note">Most comfortable at small sizes. Bigger conceptual change: motion is no longer a permanent far-right sidebar.</div>
+    </section>
+  </main>
+
+  <script>
+    const stage = document.getElementById("stage");
+    document.querySelectorAll("[data-mode]").forEach((button) => {
+      button.addEventListener("click", () => {
+        document.querySelectorAll("[data-mode]").forEach((b) => b.classList.remove("active"));
+        button.classList.add("active");
+        stage.classList.toggle("wide", button.dataset.mode === "wide");
+        stage.classList.toggle("compact", button.dataset.mode === "compact");
+      });
+    });
+  </script>
+</body>
+</html>

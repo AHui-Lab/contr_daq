@@ -218,6 +218,10 @@ class ForceController:
 
         self.latest_vals = latest_corrected
         self.latest_force = float(np.sum(latest_corrected))
+        self.plot.add_samples(
+            np.sum(corrected_rows, axis=1),
+            sample_rate=self.ANALOG_OUTPUT_RATE,
+        )
 
         if self.recorder.recording:
             self.recorder.add_force_chunk(
@@ -237,7 +241,8 @@ class ForceController:
             if label is not None:
                 label.setText(f"P{i}: {val:.2f} {channel_unit}")
 
-        self.plot.add_point(self.latest_force)
+        if self.active_mode != "analog":
+            self.plot.add_point(self.latest_force)
 
     def _selected_mode(self):
         widget = getattr(self.ui, "forceModeComboBox", None)

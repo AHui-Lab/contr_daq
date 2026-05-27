@@ -57,12 +57,16 @@ force_plot_module = types.ModuleType("modules.force.force_plot")
 class DummyForcePlot:
     def __init__(self, *args, **kwargs):
         self.points = []
+        self.samples = []
 
     def clear(self):
         self.points.clear()
 
     def add_point(self, point):
         self.points.append(point)
+
+    def add_samples(self, points, sample_rate):
+        self.samples.append((list(points), sample_rate))
 
 
 force_plot_module.ForcePlot = DummyForcePlot

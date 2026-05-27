@@ -1,11 +1,13 @@
 import cv2
 from PySide6.QtCore import QThread, Signal
 from PySide6.QtGui import QImage
-from utils.log import log   # 如果你有统一日志系统（可选）
 
 
 class CameraThread(QThread):
     frame_ready = Signal(QImage)
+    TARGET_WIDTH = 640
+    TARGET_HEIGHT = 480
+    TARGET_FPS = 15
 
     def __init__(self, cam_index: int):
         super().__init__()
@@ -16,28 +18,36 @@ class CameraThread(QThread):
     def run(self):
         self.cap = cv2.VideoCapture(self.cam_index, cv2.CAP_DSHOW)
         if not self.cap.isOpened():
-            if not self.cap.isOpened():
-                print(f"摄像头 {self.cam_index} 未打开")
+            print(f"Camera {self.cam_index} failed to open")
             while self._running:
-                self.msleep(100)  # ⭐ 保持线程活着
+                self.msleep(100)
             return
+
+        self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.TARGET_WIDTH)
+        self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.TARGET_HEIGHT)
+        self.cap.set(cv2.CAP_PROP_FPS, self.TARGET_FPS)
+        self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
 
         while self._running:
             ret, frame = self.cap.read()
             if not ret:
+                self.msleep(10)
                 continue
 
             frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             h, w, ch = frame.shape
             image = QImage(
                 frame.data, w, h, ch * w, QImage.Format_RGB888
-            ).copy()  # ⭐ 非常重要：copy()
+            ).copy()
 
             self.frame_ready.emit(image)
-            self.msleep(40)
+            self.msleep(round(1000 / self.TARGET_FPS))
 
         self.cap.release()
 
-    def stop(self):
+    def request_stop(self):
         self._running = False
+
+    def stop(self):
+        self.request_stop()
         self.wait()

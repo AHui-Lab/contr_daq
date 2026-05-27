@@ -1,0 +1,79 @@
+import sys
+import types
+import importlib
+
+import pytest
+
+
+class DummyCurve:
+    def __init__(self):
+        self.data_calls = []
+
+    def setData(self, x, y):
+        self.data_calls.append((list(x), list(y)))
+
+    def clear(self):
+        self.data_calls.append(([], []))
+
+
+class DummyPlotWidget:
+    last_curve = None
+
+    def setLabel(self, *args, **kwargs):
+        pass
+
+    def showGrid(self, *args, **kwargs):
+        pass
+
+    def plot(self, *args, **kwargs):
+        DummyPlotWidget.last_curve = DummyCurve()
+        return DummyPlotWidget.last_curve
+
+
+class DummyLayout:
+    def setContentsMargins(self, *args):
+        pass
+
+    def addWidget(self, widget):
+        pass
+
+
+class DummyParent:
+    def layout(self):
+        return DummyLayout()
+
+
+pyqtgraph = types.ModuleType("pyqtgraph")
+pyqtgraph.PlotWidget = DummyPlotWidget
+pyqtgraph.mkPen = lambda *args, **kwargs: (args, kwargs)
+sys.modules["pyqtgraph"] = pyqtgraph
+
+qtwidgets = types.ModuleType("PySide6.QtWidgets")
+qtwidgets.QVBoxLayout = lambda parent: DummyLayout()
+pyside6 = types.ModuleType("PySide6")
+pyside6.QtWidgets = qtwidgets
+sys.modules["PySide6"] = pyside6
+sys.modules["PySide6.QtWidgets"] = qtwidgets
+
+sys.modules.pop("modules.force.force_plot", None)
+ForcePlot = importlib.import_module("modules.force.force_plot").ForcePlot
+
+
+def test_add_samples_plots_continuous_force_chunk_with_sample_timing():
+    plot = ForcePlot(DummyParent(), time_window=1.0)
+
+    plot.add_samples([10.0, 20.0, 30.0], sample_rate=10.0)
+
+    x, y = DummyPlotWidget.last_curve.data_calls[-1]
+    assert x == pytest.approx([0.0, 0.1, 0.2])
+    assert y == pytest.approx([10.0, 20.0, 30.0])
+
+
+def test_add_samples_prunes_old_points_by_time_window():
+    plot = ForcePlot(DummyParent(), time_window=0.25)
+
+    plot.add_samples([1.0, 2.0, 3.0, 4.0], sample_rate=10.0)
+
+    x, y = DummyPlotWidget.last_curve.data_calls[-1]
+    assert x == pytest.approx([0.1, 0.2, 0.3])
+    assert y == pytest.approx([2.0, 3.0, 4.0])
