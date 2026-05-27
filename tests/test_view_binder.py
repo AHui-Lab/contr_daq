@@ -122,6 +122,25 @@ class DummyTextWidget:
         self.maximum_height = height
 
 
+class DummyComboBox(DummyTextWidget):
+    def __init__(self, items):
+        super().__init__()
+        self.items = items
+        self.current_index = 0
+
+    def findText(self, text):
+        try:
+            return self.items.index(text)
+        except ValueError:
+            return -1
+
+    def setCurrentIndex(self, index):
+        self.current_index = index
+
+    def currentText(self):
+        return self.items[self.current_index]
+
+
 class DummyStatusBar:
     def __init__(self):
         self.message = ""
@@ -194,13 +213,13 @@ class DummyUi:
         self.forceZeroButton = DummyTextWidget()
         self.Emergency_Stop = DummyTextWidget()
         self.forceModeLabel = DummyTextWidget()
-        self.forceModeComboBox = DummyTextWidget()
+        self.forceModeComboBox = DummyComboBox(["Serial Modbus", "Analog Voltage"])
         self.forceDeviceLabel = DummyTextWidget()
         self.forceDeviceComboBox = DummyTextWidget()
         self.forceSampleRateLabel = DummyTextWidget()
         self.forceSampleRateSpinBox = DummyTextWidget()
         self.forceTerminalConfigLabel = DummyTextWidget()
-        self.forceTerminalConfigComboBox = DummyTextWidget()
+        self.forceTerminalConfigComboBox = DummyComboBox(["RSE", "NRSE", "DIFFERENTIAL"])
         self.forceVoltageRangeLabel = DummyTextWidget()
         self.forceVoltageRangeComboBox = DummyTextWidget()
         self.forceFullScaleLabel = DummyTextWidget()
@@ -258,7 +277,9 @@ def test_setup_removes_unused_placeholder_tabs_and_defaults_force_labels():
     assert ui.tabWidget_2.count() == 1
     assert ui.tabWidget_3.count() == 1
     assert ui.totalForceLabel.text == "Total: 0.00 N"
-    assert ui.Force1_Label.text == "P1: 0.00"
+    assert ui.Force1_Label.text == "P1: 0.00 N"
+    assert ui.forceModeComboBox.currentText() == "Analog Voltage"
+    assert ui.forceTerminalConfigComboBox.currentText() == "DIFFERENTIAL"
 
 
 def test_setup_keeps_channel_and_force_controls_readable():

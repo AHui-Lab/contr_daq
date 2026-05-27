@@ -105,7 +105,9 @@ class DataRecorder:
             force_path = os.path.join(self.save_dir, force_file)
 
             ch_num = len(self.force_buffer[0]) - 2
-            force_header = ["time", "total_force"] + [f"P{i + 1}" for i in range(ch_num)]
+            force_header = ["time", "total_force(N)"] + [
+                f"P{i + 1}(N)" for i in range(ch_num)
+            ]
 
             with open(force_path, "w", newline="") as f:
                 writer = csv.writer(f)

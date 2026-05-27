@@ -79,7 +79,16 @@ def test_save_writes_merged_file_without_dropping_daq_rows(monkeypatch, tmp_path
     with merged_files[0].open(newline="") as f:
         rows = list(csv.reader(f))
 
-    assert rows[0] == ["time", "ai0", "force_time", "total_force", "P1", "P2", "P3", "P4"]
+    assert rows[0] == [
+        "time",
+        "ai0",
+        "force_time",
+        "total_force(N)",
+        "P1(N)",
+        "P2(N)",
+        "P3(N)",
+        "P4(N)",
+    ]
     assert len(rows) == 5
     assert [row[0] for row in rows[1:]] == ["0.0", "0.001", "0.002", "0.003"]
     assert rows[1][2:] == ["", "", "", "", "", ""]

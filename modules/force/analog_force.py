@@ -6,7 +6,7 @@ import numpy as np
 @dataclass(frozen=True)
 class AnalogForceConfig:
     voltage_range: str = "0-10V"
-    full_scale_force: float = 100.0
+    full_scale_force: float = 98.0665
 
 
 def convert_voltages_to_force(voltages, config: AnalogForceConfig) -> np.ndarray:

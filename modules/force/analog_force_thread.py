@@ -10,20 +10,24 @@ class AnalogForceThread(QThread):
     started_ok = Signal(bool)
 
     DEFAULT_CHANNELS = ["ai0", "ai1", "ai2", "ai3"]
+    DEFAULT_TERMINAL_CONFIG = "DIFFERENTIAL"
+    TERMINAL_CONFIG_ALIASES = {
+        "DIFFERENTIAL": "DIFF",
+    }
 
     def __init__(
         self,
         device,
         channels=None,
         sample_rate=1000,
-        terminal_config="RSE",
+        terminal_config=DEFAULT_TERMINAL_CONFIG,
         chunk_size=100,
     ):
         super().__init__()
         self.device = device
         self.channels = list(channels or self.DEFAULT_CHANNELS)
         self.sample_rate = sample_rate
-        self.terminal_config = terminal_config
+        self.terminal_config = terminal_config or self.DEFAULT_TERMINAL_CONFIG
         self.chunk_size = chunk_size
         self._running = True
 
@@ -32,7 +36,11 @@ class AnalogForceThread(QThread):
             import nidaqmx
             from nidaqmx.constants import AcquisitionType, TerminalConfiguration
 
-            terminal_config = getattr(TerminalConfiguration, self.terminal_config)
+            terminal_config_name = self.TERMINAL_CONFIG_ALIASES.get(
+                self.terminal_config.upper(),
+                self.terminal_config.upper(),
+            )
+            terminal_config = getattr(TerminalConfiguration, terminal_config_name)
             with nidaqmx.Task() as task:
                 for channel in self.channels:
                     task.ai_channels.add_ai_voltage_chan(
@@ -66,7 +74,7 @@ class AnalogForceThread(QThread):
                     self.data_ready.emit(float(np.sum(latest)), latest.tolist())
 
         except Exception as exc:
-            log("[Analog Force Thread Error]", exc)
+            log(f"[Analog Force Thread Error] {type(exc).__name__}: {exc}", "error")
             self.started_ok.emit(False)
 
     def stop(self):

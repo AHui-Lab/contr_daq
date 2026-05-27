@@ -18,6 +18,7 @@ class ViewBinder:
         self._clear_legacy_inline_styles()
         self._remove_placeholder_tabs()
         self._name_workbench_sections()
+        self._set_force_acquisition_defaults()
         self._tune_layout_density()
         self._build_status_bar()
         self.update_status()
@@ -73,15 +74,19 @@ class ViewBinder:
             "label_12": "AO Voltage",
             "label_13": "Speed",
             "totalForceLabel": "Total: 0.00 N",
-            "Force1_Label": "P1: 0.00",
-            "Force2_Label": "P2: 0.00",
-            "Force3_Label": "P3: 0.00",
-            "Force4_Label": "P4: 0.00",
+            "Force1_Label": "P1: 0.00 N",
+            "Force2_Label": "P2: 0.00 N",
+            "Force3_Label": "P3: 0.00 N",
+            "Force4_Label": "P4: 0.00 N",
         }
         for object_name, text in text_map.items():
             widget = getattr(self.ui, object_name, None)
             if widget is not None and hasattr(widget, "setText"):
                 widget.setText(text)
+
+    def _set_force_acquisition_defaults(self) -> None:
+        self._select_combo_text("forceModeComboBox", "Analog Voltage")
+        self._select_combo_text("forceTerminalConfigComboBox", "DIFFERENTIAL")
 
     def _remove_placeholder_tabs(self) -> None:
         for widget_name, keep_count in (("tabWidget_2", 1), ("tabWidget_3", 1)):
@@ -250,3 +255,12 @@ class ViewBinder:
         widget = getattr(self.ui, widget_name, None)
         if widget is not None and hasattr(widget, "setMaximumWidth"):
             widget.setMaximumWidth(width)
+
+    def _select_combo_text(self, widget_name: str, text: str) -> None:
+        widget = getattr(self.ui, widget_name, None)
+        if widget is None or not hasattr(widget, "findText") or not hasattr(widget, "setCurrentIndex"):
+            return
+
+        index = widget.findText(text)
+        if index >= 0:
+            widget.setCurrentIndex(index)

@@ -1,6 +1,8 @@
 import sys
 import types
 
+import pytest
+
 
 qtcore = types.ModuleType("PySide6.QtCore")
 
@@ -124,7 +126,7 @@ class DummyUi:
         self.forceSampleRateSpinBox = DummySpinBox(2000)
         self.forceTerminalConfigComboBox = DummyComboBox("DIFFERENTIAL")
         self.forceVoltageRangeComboBox = DummyComboBox("0-10V")
-        self.forceFullScaleSpinBox = DummySpinBox(100.0)
+        self.forceFullScaleSpinBox = DummySpinBox(98.0665)
 
 
 class DummyRecorder:
@@ -150,7 +152,7 @@ def test_start_analog_force_uses_independent_force_device_settings(monkeypatch):
     }
 
 
-def test_analog_force_data_is_converted_from_voltage_before_display(monkeypatch):
+def test_analog_force_data_is_converted_from_voltage_to_newtons(monkeypatch):
     DummyThread.created = []
     monkeypatch.setattr("modules.force.force_controller.AnalogForceThread", DummyThread)
     ui = DummyUi()
@@ -159,11 +161,13 @@ def test_analog_force_data_is_converted_from_voltage_before_display(monkeypatch)
 
     controller.on_data(0.0, [1.0, 2.0, 3.0, 4.0])
 
-    assert controller.latest_vals.tolist() == [10.0, 20.0, 30.0, 40.0]
-    assert controller.latest_force == 100.0
+    assert controller.latest_vals.tolist() == pytest.approx(
+        [9.80665, 19.6133, 29.41995, 39.2266]
+    )
+    assert controller.latest_force == pytest.approx(98.0665)
 
 
-def test_analog_force_chunk_records_all_samples_after_conversion(monkeypatch):
+def test_analog_force_chunk_records_converted_newtons(monkeypatch):
     DummyThread.created = []
     monkeypatch.setattr("modules.force.force_controller.AnalogForceThread", DummyThread)
     recorder = DummyRecorder()
@@ -172,11 +176,11 @@ def test_analog_force_chunk_records_all_samples_after_conversion(monkeypatch):
 
     controller.on_analog_chunk([[1.0, 2.0, 3.0, 4.0], [2.0, 4.0, 6.0, 8.0]])
 
-    assert recorder.force_chunks == [
-        (
-            [[10.0, 20.0, 30.0, 40.0], [20.0, 40.0, 60.0, 80.0]],
-            2000,
-        )
-    ]
-    assert controller.latest_vals.tolist() == [20.0, 40.0, 60.0, 80.0]
-    assert controller.latest_force == 200.0
+    rows, sample_rate = recorder.force_chunks[0]
+    assert rows[0] == pytest.approx([9.80665, 19.6133, 29.41995, 39.2266])
+    assert rows[1] == pytest.approx([19.6133, 39.2266, 58.8399, 78.4532])
+    assert sample_rate == 2000
+    assert controller.latest_vals.tolist() == pytest.approx(
+        [19.6133, 39.2266, 58.8399, 78.4532]
+    )
+    assert controller.latest_force == pytest.approx(196.133)

@@ -50,8 +50,16 @@ class ForceController:
             from nidaqmx.system import System
 
             combo.clear()
+            preferred_index = 0
             for dev in System.local().devices:
                 combo.addItem(dev.name)
+                try:
+                    if "6009" in dev.product_type:
+                        preferred_index = combo.count() - 1
+                except Exception:
+                    pass
+            if combo.count() > 0 and hasattr(combo, "setCurrentIndex"):
+                combo.setCurrentIndex(preferred_index)
         except Exception as exc:
             print("[Force] list NI devices failed:", exc)
 
@@ -105,9 +113,15 @@ class ForceController:
         self.thread.start()
 
     def _start_analog(self):
+        device = self._force_device()
+        if not device:
+            print("[Force] no NI DAQ device selected")
+            self.on_started(False)
+            return
+
         self.active_mode = "analog"
         self.thread = AnalogForceThread(
-            device=self._force_device(),
+            device=device,
             sample_rate=self._force_sample_rate(),
             terminal_config=self._force_terminal_config(),
         )
@@ -206,19 +220,20 @@ class ForceController:
         if not self.running or self.latest_vals is None:
             return
 
-        self.ui.totalForceLabel.setText(f"总力: {self.latest_force:.2f}")
+        self.ui.totalForceLabel.setText(f"Total: {self.latest_force:.2f} N")
+        channel_unit = "N"
 
         for i, val in enumerate(self.latest_vals, start=1):
             label = getattr(self.ui, f"Force{i}_Label", None)
             if label is not None:
-                label.setText(f"P{i}: {val:.2f}")
+                label.setText(f"P{i}: {val:.2f} {channel_unit}")
 
         self.plot.add_point(self.latest_force)
 
     def _selected_mode(self):
         widget = getattr(self.ui, "forceModeComboBox", None)
         if widget is None or not hasattr(widget, "currentText"):
-            return "serial"
+            return "analog"
         text = widget.currentText().lower()
         if "analog" in text or "模拟" in text:
             return "analog"
@@ -239,8 +254,10 @@ class ForceController:
     def _force_terminal_config(self):
         widget = getattr(self.ui, "forceTerminalConfigComboBox", None)
         if widget is not None and hasattr(widget, "currentText"):
-            return widget.currentText()
-        return "RSE"
+            text = widget.currentText().strip().upper()
+            if text:
+                return text
+        return AnalogForceThread.DEFAULT_TERMINAL_CONFIG
 
     def _analog_config(self):
         range_widget = getattr(self.ui, "forceVoltageRangeComboBox", None)
@@ -253,6 +270,6 @@ class ForceController:
         full_scale = (
             float(scale_widget.value())
             if scale_widget is not None and hasattr(scale_widget, "value")
-            else 100.0
+            else 98.0665
         )
         return AnalogForceConfig(voltage_range=voltage_range, full_scale_force=full_scale)
