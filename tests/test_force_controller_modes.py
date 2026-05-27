@@ -95,6 +95,9 @@ class DummySpinBox:
     def value(self):
         return self._value
 
+    def setValue(self, value):
+        self._value = value
+
 
 class DummyLabel:
     def __init__(self):
@@ -174,13 +177,42 @@ def test_analog_force_chunk_records_converted_newtons(monkeypatch):
     controller = ForceController(DummyUi(), recorder=recorder)
     controller.start()
 
-    controller.on_analog_chunk([[1.0, 2.0, 3.0, 4.0], [2.0, 4.0, 6.0, 8.0]])
+    controller.on_analog_chunk(
+        [
+            [1.0, 2.0, 3.0, 4.0],
+            [1.0, 2.0, 3.0, 4.0],
+            [1.0, 2.0, 3.0, 4.0],
+            [1.0, 2.0, 3.0, 4.0],
+            [1.0, 2.0, 3.0, 4.0],
+        ]
+    )
 
     rows, sample_rate = recorder.force_chunks[0]
     assert rows[0] == pytest.approx([9.80665, 19.6133, 29.41995, 39.2266])
-    assert rows[1] == pytest.approx([19.6133, 39.2266, 58.8399, 78.4532])
-    assert sample_rate == 2000
+    assert sample_rate == 400
     assert controller.latest_vals.tolist() == pytest.approx(
-        [19.6133, 39.2266, 58.8399, 78.4532]
+        [9.80665, 19.6133, 29.41995, 39.2266]
     )
-    assert controller.latest_force == pytest.approx(196.133)
+    assert controller.latest_force == pytest.approx(98.0665)
+
+
+def test_analog_force_chunk_filters_spike_before_400hz_output(monkeypatch):
+    DummyThread.created = []
+    monkeypatch.setattr("modules.force.force_controller.AnalogForceThread", DummyThread)
+    recorder = DummyRecorder()
+    controller = ForceController(DummyUi(), recorder=recorder)
+    controller.start()
+
+    controller.on_analog_chunk(
+        [
+            [1.0, 1.0, 1.0, 1.0],
+            [1.0, 1.0, 1.0, 1.0],
+            [10.0, 10.0, 10.0, 10.0],
+            [1.0, 1.0, 1.0, 1.0],
+            [1.0, 1.0, 1.0, 1.0],
+        ]
+    )
+
+    rows, sample_rate = recorder.force_chunks[0]
+    assert rows[0] == pytest.approx([9.80665, 9.80665, 9.80665, 9.80665])
+    assert sample_rate == 400

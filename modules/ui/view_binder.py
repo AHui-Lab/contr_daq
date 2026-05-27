@@ -87,6 +87,7 @@ class ViewBinder:
     def _set_force_acquisition_defaults(self) -> None:
         self._select_combo_text("forceModeComboBox", "Analog Voltage")
         self._select_combo_text("forceTerminalConfigComboBox", "DIFFERENTIAL")
+        self._set_spinbox_value("forceSampleRateSpinBox", 2000)
 
     def _remove_placeholder_tabs(self) -> None:
         for widget_name, keep_count in (("tabWidget_2", 1), ("tabWidget_3", 1)):
@@ -264,3 +265,8 @@ class ViewBinder:
         index = widget.findText(text)
         if index >= 0:
             widget.setCurrentIndex(index)
+
+    def _set_spinbox_value(self, widget_name: str, value: int) -> None:
+        widget = getattr(self.ui, widget_name, None)
+        if widget is not None and hasattr(widget, "setValue"):
+            widget.setValue(value)

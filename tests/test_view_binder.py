@@ -141,6 +141,15 @@ class DummyComboBox(DummyTextWidget):
         return self.items[self.current_index]
 
 
+class DummySpinBox(DummyTextWidget):
+    def __init__(self, value=0):
+        super().__init__()
+        self.value = value
+
+    def setValue(self, value):
+        self.value = value
+
+
 class DummyStatusBar:
     def __init__(self):
         self.message = ""
@@ -217,7 +226,7 @@ class DummyUi:
         self.forceDeviceLabel = DummyTextWidget()
         self.forceDeviceComboBox = DummyTextWidget()
         self.forceSampleRateLabel = DummyTextWidget()
-        self.forceSampleRateSpinBox = DummyTextWidget()
+        self.forceSampleRateSpinBox = DummySpinBox(1000)
         self.forceTerminalConfigLabel = DummyTextWidget()
         self.forceTerminalConfigComboBox = DummyComboBox(["RSE", "NRSE", "DIFFERENTIAL"])
         self.forceVoltageRangeLabel = DummyTextWidget()
@@ -280,6 +289,7 @@ def test_setup_removes_unused_placeholder_tabs_and_defaults_force_labels():
     assert ui.Force1_Label.text == "P1: 0.00 N"
     assert ui.forceModeComboBox.currentText() == "Analog Voltage"
     assert ui.forceTerminalConfigComboBox.currentText() == "DIFFERENTIAL"
+    assert ui.forceSampleRateSpinBox.value == 2000
 
 
 def test_setup_keeps_channel_and_force_controls_readable():

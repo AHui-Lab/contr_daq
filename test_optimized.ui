@@ -1731,7 +1731,7 @@ QTabBar::tab:hover:!selected {
                  <number>48000</number>
                 </property>
                 <property name="value">
-                 <number>1000</number>
+                 <number>2000</number>
                 </property>
                </widget>
               </item>
