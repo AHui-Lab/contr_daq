@@ -415,5 +415,8 @@ def test_setup_prioritizes_camera_and_keeps_motion_as_sidebar():
     assert ui.tabWidget.minimum_height >= 640
     assert ui.tabWidget_3.minimum_width >= 360
     assert ui.tabWidget_3.maximum_width <= 430
-    assert ui.gridLayout_3.last_add_args == (ui.tabWidget_3, 0, 2, 3, 1)
-    assert ui.logTextEdit.visible is False
+    assert ui.gridLayout_3.widgets[(0, 2, 2, 1)] is ui.tabWidget_3
+    assert ui.gridLayout_3.widgets[(2, 2, 1, 1)] is ui.logTextEdit
+    assert ui.logTextEdit.visible is True
+    assert ui.logTextEdit.minimum_height == 120
+    assert ui.logTextEdit.maximum_height == 180

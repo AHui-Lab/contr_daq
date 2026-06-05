@@ -1,6 +1,15 @@
-# modules/motion/net_amc4xer.py
 import ctypes
-from ctypes import c_uint, c_char_p, c_ubyte, c_int
+from dataclasses import dataclass
+from ctypes import c_uint, c_char_p, c_ubyte
+
+
+@dataclass(frozen=True)
+class MotionProfile:
+    vo: int
+    vt: int
+    acc_time: int
+    dec_time: int
+
 
 class NetAMC4XER:
     def __init__(self, dll_path, dest_ip: str):
@@ -27,19 +36,25 @@ class NetAMC4XER:
     def enable_axis(self, axis: int):
         return self.dll.Set_Axs(self.dest_ip, axis, 1, 1, 1, 1)
 
-    def move_relative(self, axis: int, direction: int, length: int,sped_setting_val: int):
+    def move_relative(
+        self,
+        axis: int,
+        direction: int,
+        length: int,
+        profile: MotionProfile,
+    ):
         return self.dll.DeltMov(
             self.dest_ip,
             axis,
             0,              # curve
             direction,      # Dir
             0,              # Outmod
-            2000,            # Vo
-            2000*sped_setting_val,            # Vt
+            profile.vo,     # Vo
+            profile.vt,     # Vt
             length,         # Length
             0,              # StartDec
-            200,             # Acctime
-            200,             # Dectime
+            profile.acc_time,  # Acctime
+            profile.dec_time,  # Dectime
             0,              # SD_EN
             0               # WaitSYNC
         )

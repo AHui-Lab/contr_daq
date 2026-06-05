@@ -72,7 +72,7 @@ class ViewBinder:
             "label_8": "Y Min",
             "label_10": "Y Max",
             "label_12": "AO Voltage",
-            "label_13": "Speed",
+            "label_13": "Speed (mm/s)",
             "totalForceLabel": "Total: 0.00 N",
             "Force1_Label": "P1: 0.00 N",
             "Force2_Label": "P2: 0.00 N",
@@ -149,6 +149,8 @@ class ViewBinder:
         self._set_max_width("tabWidget_3", 430)
         self._set_min_width("tabWidget_3", 360)
         self._set_min_height("tabWidget_3", 430)
+        self._set_min_height("logTextEdit", 120)
+        self._set_max_height("logTextEdit", 180)
 
         if hasattr(self.ui, "gridLayout_3"):
             self.ui.gridLayout_3.setContentsMargins(10, 10, 10, 10)
@@ -199,12 +201,15 @@ class ViewBinder:
         if log_widget is not None:
             layout.removeWidget(log_widget)
             if hasattr(log_widget, "setVisible"):
-                log_widget.setVisible(False)
+                log_widget.setVisible(True)
 
         layout.removeWidget(motion_tabs)
-        layout.addWidget(motion_tabs, 0, 2, 3, 1)
+        layout.addWidget(motion_tabs, 0, 2, 2, 1)
         if hasattr(motion_tabs, "raise_"):
             motion_tabs.raise_()
+
+        if log_widget is not None:
+            layout.addWidget(log_widget, 2, 2, 1, 1)
 
     def _set_tab_text(self, widget_name: str, labels: dict[int, str]) -> None:
         tab_widget = getattr(self.ui, widget_name, None)

@@ -5,7 +5,7 @@ import numpy as np
 
 from modules.force.force_thread import ForceThread
 from modules.force.analog_force import AnalogForceConfig, convert_voltages_to_force
-from modules.force.analog_force_thread import AnalogForceThread
+from modules.force.analog_force_thread import AnalogForceProcessor, AnalogForceThread
 from modules.force.force_plot import ForcePlot
 from modules.recorder.data_recorder import DataRecorder
 
@@ -30,9 +30,7 @@ class ForceController:
 
         self.zero_offset = np.zeros(self.CHANNEL_COUNT)
         self.zero_buffer = deque(maxlen=300)
-        self._analog_median_buffers = []
-        self._analog_average_buffer = deque()
-        self._analog_sample_count = 0
+        self._pending_force_plot_rows = deque(maxlen=20)
 
         self.plot = ForcePlot(self.ui.forcePlotWidget, time_window=10.0)
         self.thread = None
@@ -102,10 +100,10 @@ class ForceController:
     def start(self):
         self.plot.clear()
         self.zero_buffer.clear()
+        self._pending_force_plot_rows.clear()
         self.zero_offset = np.zeros(self.CHANNEL_COUNT)
         self.latest_vals = None
         self.latest_force = 0.0
-        self._reset_analog_filter()
 
         if self._selected_mode() == "analog":
             self._start_analog()
@@ -132,8 +130,16 @@ class ForceController:
             device=device,
             sample_rate=self._force_sample_rate(),
             terminal_config=self._force_terminal_config(),
+            force_config=self._analog_config(),
+            output_rate=self.ANALOG_OUTPUT_RATE,
+            median_window=self.ANALOG_MEDIAN_WINDOW,
+            average_window_ms=self.ANALOG_AVERAGE_WINDOW_MS,
         )
-        self.thread.chunk_ready.connect(self.on_analog_chunk)
+        force_chunk_signal = getattr(self.thread, "force_chunk_ready", None)
+        if force_chunk_signal is not None:
+            force_chunk_signal.connect(self.on_analog_force_chunk)
+        else:
+            self.thread.chunk_ready.connect(self.on_analog_chunk)
         self.thread.started_ok.connect(self.on_started)
         self.thread.start()
 
@@ -201,13 +207,12 @@ class ForceController:
                 vals=corrected_vals.tolist(),
             )
 
-    def on_analog_chunk(self, rows):
-        filtered_voltage_rows = self._filter_analog_voltage_rows(rows)
-        if filtered_voltage_rows.size == 0:
+    def on_analog_force_chunk(self, force_rows):
+        force_rows = np.asarray(force_rows, dtype=float)
+        if force_rows.size == 0:
             return
-
-        force_rows = convert_voltages_to_force(filtered_voltage_rows, self._analog_config())
-
+        if force_rows.ndim == 1:
+            force_rows = force_rows.reshape(1, -1)
         if force_rows.shape[1] != self.zero_offset.size:
             self.zero_offset = np.zeros(force_rows.shape[1])
 
@@ -218,16 +223,23 @@ class ForceController:
 
         self.latest_vals = latest_corrected
         self.latest_force = float(np.sum(latest_corrected))
-        self.plot.add_samples(
-            np.sum(corrected_rows, axis=1),
-            sample_rate=self.ANALOG_OUTPUT_RATE,
-        )
+        self._pending_force_plot_rows.append(corrected_rows)
 
         if self.recorder.recording:
             self.recorder.add_force_chunk(
                 rows=corrected_rows,
                 sample_rate=self.ANALOG_OUTPUT_RATE,
             )
+
+    def on_analog_chunk(self, rows):
+        processor = AnalogForceProcessor(
+            sample_rate=self._force_sample_rate(),
+            force_config=self._analog_config(),
+            output_rate=self.ANALOG_OUTPUT_RATE,
+            median_window=self.ANALOG_MEDIAN_WINDOW,
+            average_window_ms=self.ANALOG_AVERAGE_WINDOW_MS,
+        )
+        self.on_analog_force_chunk(processor.process(rows))
 
     def update_ui(self):
         if not self.running or self.latest_vals is None:
@@ -241,8 +253,22 @@ class ForceController:
             if label is not None:
                 label.setText(f"P{i}: {val:.2f} {channel_unit}")
 
-        if self.active_mode != "analog":
+        if self.active_mode == "analog":
+            self._flush_analog_plot()
+        else:
             self.plot.add_point(self.latest_force)
+
+    def _flush_analog_plot(self):
+        if not self._pending_force_plot_rows:
+            return
+
+        rows = list(self._pending_force_plot_rows)
+        self._pending_force_plot_rows.clear()
+        force_rows = np.vstack(rows)
+        self.plot.add_samples(
+            np.sum(force_rows, axis=1),
+            sample_rate=self.ANALOG_OUTPUT_RATE,
+        )
 
     def _selected_mode(self):
         widget = getattr(self.ui, "forceModeComboBox", None)
@@ -288,47 +314,3 @@ class ForceController:
         )
         return AnalogForceConfig(voltage_range=voltage_range, full_scale_force=full_scale)
 
-    def _reset_analog_filter(self):
-        self._analog_median_buffers = []
-        self._analog_average_buffer = deque()
-        self._analog_sample_count = 0
-
-    def _filter_analog_voltage_rows(self, rows):
-        voltage_rows = np.asarray(rows, dtype=float)
-        if voltage_rows.ndim == 1:
-            voltage_rows = voltage_rows.reshape(1, -1)
-
-        if not self._analog_median_buffers or len(self._analog_median_buffers) != voltage_rows.shape[1]:
-            self._analog_median_buffers = [
-                deque(maxlen=self.ANALOG_MEDIAN_WINDOW)
-                for _ in range(voltage_rows.shape[1])
-            ]
-            self._analog_average_buffer.clear()
-            self._analog_sample_count = 0
-
-        sample_rate = max(1, self._force_sample_rate())
-        decimation = max(1, round(sample_rate / self.ANALOG_OUTPUT_RATE))
-        average_window = max(
-            1,
-            round(sample_rate * self.ANALOG_AVERAGE_WINDOW_MS / 1000.0),
-        )
-
-        output_rows = []
-        for row in voltage_rows:
-            median_values = []
-            for value, buffer in zip(row, self._analog_median_buffers):
-                buffer.append(value)
-                median_values.append(float(np.median(buffer)))
-
-            self._analog_average_buffer.append(median_values)
-            while len(self._analog_average_buffer) > average_window:
-                self._analog_average_buffer.popleft()
-
-            self._analog_sample_count += 1
-            if self._analog_sample_count % decimation == 0:
-                output_rows.append(np.mean(self._analog_average_buffer, axis=0))
-
-        if not output_rows:
-            return np.empty((0, voltage_rows.shape[1]))
-
-        return np.asarray(output_rows, dtype=float)

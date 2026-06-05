@@ -156,6 +156,10 @@ def test_start_analog_force_uses_independent_force_device_settings(monkeypatch):
         "device": "DevForce",
         "sample_rate": 2000,
         "terminal_config": "DIFFERENTIAL",
+        "force_config": controller._analog_config(),
+        "output_rate": 400,
+        "median_window": 3,
+        "average_window_ms": 20,
     }
 
 

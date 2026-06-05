@@ -100,6 +100,9 @@ class MainWindow:
             self.camera_controller_2.update_ui()
 
     def update_plot_ui(self):
+        if hasattr(self, "daq_controller"):
+            self.daq_controller.update_ui()
+
         if hasattr(self, "force_controller"):
             self.force_controller.update_ui()
 

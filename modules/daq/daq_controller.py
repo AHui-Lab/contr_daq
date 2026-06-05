@@ -1,3 +1,5 @@
+from collections import deque
+
 from nidaqmx.system import System
 from .daq_thread import DaqThread
 from .daq_plot import DaqPlot
@@ -14,6 +16,7 @@ class DaqController:
 
         # ===== Thread =====
         self.thread = None
+        self._pending_plot_chunks = deque(maxlen=20)
 
         # ===== UI 信号 =====
         self.ui.startStopButton.clicked.connect(self.toggle)
@@ -88,6 +91,7 @@ class DaqController:
         # 清图
         self.plot.set_mode_time()
         self.plot.clear()
+        self._pending_plot_chunks.clear()
 
         # 启动线程（与你的 DaqThread 完全匹配）
         self.thread = DaqThread(
@@ -97,11 +101,7 @@ class DaqController:
         )
 
         def on_daq_data(data):
-            self.plot.update(
-                data,
-                fs,
-                self.ui.timeWindowSpinBox.value()
-            )
+            self._pending_plot_chunks.append(data)
 
             # === 电压 → 电流（按你的 IV 同样电路）===
             currents = {}
@@ -154,6 +154,28 @@ class DaqController:
         self.ui.startStopButton.setText("开始")
 
     # --------------------------------------------------
+    def update_ui(self):
+        if not self._pending_plot_chunks:
+            return
+
+        chunks = list(self._pending_plot_chunks)
+        self._pending_plot_chunks.clear()
+
+        merged = {}
+        for chunk in chunks:
+            for ch, values in chunk.items():
+                merged.setdefault(ch, []).append(np.asarray(values))
+
+        plot_data = {
+            ch: np.concatenate(values)
+            for ch, values in merged.items()
+        }
+        self.plot.update(
+            plot_data,
+            self.ui.sampleRateSpinBox.value(),
+            self.ui.timeWindowSpinBox.value(),
+        )
+
     def _lock_ui(self, locked: bool):
         self.ui.daqDeviceComboBox.setDisabled(locked)
         for i in range(16):

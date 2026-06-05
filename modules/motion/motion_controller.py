@@ -1,17 +1,24 @@
 from pathlib import Path
 
 from modules.motion.motion_command_thread import MotionCommandThread
-from modules.motion.net_amc4xer import NetAMC4XER
+from modules.motion.net_amc4xer import MotionProfile, NetAMC4XER
 from utils.log import log
 
 
 class MotionController:
-    AXIS_MAP = {
-        "X": 1,
-        "Y": 0,
-        "Z": 3,
-        "R": 2,
+    AXIS_CONFIG = {
+        "X": {"axis": 1, "pulses_per_mm": 2000, "accel_mm_s2": 20},
+        "Y": {"axis": 0, "pulses_per_mm": 2000, "accel_mm_s2": 20},
+        "Z": {"axis": 3, "pulses_per_mm": 10959, "accel_mm_s2": 5},
+        "R": {"axis": 2, "pulses_per_mm": 2000, "accel_mm_s2": 20},
     }
+    AXIS_MAP = {name: config["axis"] for name, config in AXIS_CONFIG.items()}
+    MIN_SPEED_MM_S = 0.1
+    MAX_SPEED_MM_S = 10.0
+    START_SPEED_RATIO = 0.1
+    MIN_START_SPEED_MM_S = 0.1
+    MIN_RAMP_TIME_MS = 100
+    MAX_RAMP_TIME_MS = 1000
     BASE_DIR = Path(__file__).resolve().parents[2]
     dll_path = BASE_DIR / "dll" / "NET_AMC4XER.dll"
 
@@ -42,20 +49,25 @@ class MotionController:
 
     def move(self, axis_name: str, direction: int):
         distance_mm = self.ui.distanceSpinBox.value()
-        axis, length_pulse, speed = self._motion_params(axis_name, distance_mm)
+        axis, length_pulse, profile, speed_mm_s = self._motion_params(axis_name, distance_mm)
 
-        log(f"[Motion] {axis_name} {'+' if direction > 0 else '-'} {speed} {distance_mm} mm")
-        self._start_move_thread(axis, direction, length_pulse, speed)
+        log(
+            f"[Motion] {axis_name} {'+' if direction > 0 else '-'} "
+            f"{speed_mm_s:.2f} mm/s {distance_mm} mm "
+            f"(Vo={profile.vo}, Vt={profile.vt}, "
+            f"Acc={profile.acc_time} ms, Dec={profile.dec_time} ms)"
+        )
+        self._start_move_thread(axis, direction, length_pulse, profile)
 
     def move_single(self, axis_name, direction, distance_mm):
-        axis, length_pulse, speed = self._motion_params(axis_name, distance_mm)
+        axis, length_pulse, profile, _speed_mm_s = self._motion_params(axis_name, distance_mm)
 
         self.motion.enable_axis(axis)
         self.motion.move_relative(
             axis,
             0 if direction > 0 else 1,
             length_pulse,
-            speed,
+            profile,
         )
 
     def start_loop(self, direction):
@@ -66,13 +78,13 @@ class MotionController:
         times = self.ui.Circle_times.value()
         distance = self.ui.distanceSpinBox_2.value()
         gap = self.ui.Gap_time.value()
-        axis, length_pulse, speed = self._motion_params(axis_name, distance)
+        axis, length_pulse, profile, _speed_mm_s = self._motion_params(axis_name, distance)
 
         self.motion_worker.submit_loop(
             axis,
             direction,
             length_pulse,
-            speed,
+            profile,
             times,
             gap,
         )
@@ -106,32 +118,68 @@ class MotionController:
         self.ui.Emergency_Stop.setEnabled(True)
 
     def _motion_params(self, axis_name, distance_mm):
-        axis = self.AXIS_MAP[axis_name]
+        config = self.AXIS_CONFIG[axis_name]
+        speed_mm_s = self._clamp_speed_mm_s(self.ui.Speed_Setting_val.value())
+        length_pulse = self.mm_to_pulse(distance_mm, config["pulses_per_mm"])
+        profile = self._build_motion_profile(
+            speed_mm_s=speed_mm_s,
+            pulses_per_mm=config["pulses_per_mm"],
+            accel_mm_s2=config["accel_mm_s2"],
+        )
 
-        if axis_name == "Z":
-            length_pulse = self.mm_to_pulse_Z(distance_mm)
-            speed = 1
-        else:
-            length_pulse = self.mm_to_pulse_X_Y_U(distance_mm)
-            speed = self.ui.Speed_Setting_val.value()
+        return config["axis"], length_pulse, profile, speed_mm_s
 
-        return axis, length_pulse, speed
-
-    def _start_move_thread(self, axis, direction, length_pulse, speed):
+    def _start_move_thread(self, axis, direction, length_pulse, profile):
         self.motion_worker.submit_move(
             axis,
             direction,
             length_pulse,
-            speed,
+            profile,
         )
 
     def shutdown(self):
         self.motion_worker.shutdown()
 
-    def mm_to_pulse_Z(self, mm: float) -> int:
-        pulses_per_mm = 10959
+    def mm_to_pulse(self, mm: float, pulses_per_mm: int) -> int:
         return int(mm * pulses_per_mm)
 
+    def mm_to_pulse_Z(self, mm: float) -> int:
+        return self.mm_to_pulse(mm, self.AXIS_CONFIG["Z"]["pulses_per_mm"])
+
     def mm_to_pulse_X_Y_U(self, mm: float) -> int:
-        pulses_per_mm = 2000
-        return int(mm * pulses_per_mm)
+        return self.mm_to_pulse(mm, self.AXIS_CONFIG["X"]["pulses_per_mm"])
+
+    def _build_motion_profile(
+        self,
+        speed_mm_s: float,
+        pulses_per_mm: int,
+        accel_mm_s2: float,
+    ) -> MotionProfile:
+        vt = max(1, round(speed_mm_s * pulses_per_mm))
+        start_speed_mm_s = min(
+            max(self.MIN_START_SPEED_MM_S, speed_mm_s * self.START_SPEED_RATIO),
+            speed_mm_s - 0.01,
+        )
+        start_speed_mm_s = max(0.01, start_speed_mm_s)
+        vo = max(1, min(round(start_speed_mm_s * pulses_per_mm), vt - 1))
+
+        ramp_time_ms = round((speed_mm_s - start_speed_mm_s) / accel_mm_s2 * 1000)
+        ramp_time_ms = self._clamp_int(
+            ramp_time_ms,
+            self.MIN_RAMP_TIME_MS,
+            self.MAX_RAMP_TIME_MS,
+        )
+
+        return MotionProfile(
+            vo=vo,
+            vt=vt,
+            acc_time=ramp_time_ms,
+            dec_time=ramp_time_ms,
+        )
+
+    def _clamp_speed_mm_s(self, speed_mm_s: float) -> float:
+        return max(self.MIN_SPEED_MM_S, min(float(speed_mm_s), self.MAX_SPEED_MM_S))
+
+    @staticmethod
+    def _clamp_int(value: int, minimum: int, maximum: int) -> int:
+        return max(minimum, min(value, maximum))

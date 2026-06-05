@@ -13,12 +13,12 @@ class MotionCommandThread(QThread):
         self._running = True
         self._loop_running = True
 
-    def submit_move(self, axis, direction, length_pulse, speed):
-        self._commands.put(("move", axis, direction, length_pulse, speed))
+    def submit_move(self, axis, direction, length_pulse, profile):
+        self._commands.put(("move", axis, direction, length_pulse, profile))
 
-    def submit_loop(self, axis, direction, length_pulse, speed, times, gap):
+    def submit_loop(self, axis, direction, length_pulse, profile, times, gap):
         self._loop_running = True
-        self._commands.put(("loop", axis, direction, length_pulse, speed, times, gap))
+        self._commands.put(("loop", axis, direction, length_pulse, profile, times, gap))
 
     def stop_loop(self):
         self._loop_running = False
@@ -48,19 +48,19 @@ class MotionCommandThread(QThread):
             elif kind == "shutdown":
                 break
 
-    def _execute_loop(self, axis, direction, length_pulse, speed, times, gap):
+    def _execute_loop(self, axis, direction, length_pulse, profile, times, gap):
         for _ in range(times):
             if not self._running or not self._loop_running:
                 break
-            self._execute_move(axis, direction, length_pulse, speed)
+            self._execute_move(axis, direction, length_pulse, profile)
             self.msleep(round(float(gap) * 1000))
         self.loop_finished.emit()
 
-    def _execute_move(self, axis, direction, length_pulse, speed):
+    def _execute_move(self, axis, direction, length_pulse, profile):
         self.motion.enable_axis(axis)
         self.motion.move_relative(
             axis,
             0 if direction > 0 else 1,
             length_pulse,
-            speed,
+            profile,
         )

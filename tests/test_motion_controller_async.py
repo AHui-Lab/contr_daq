@@ -38,6 +38,7 @@ sys.modules.setdefault("PySide6", pyside6)
 sys.modules.setdefault("PySide6.QtCore", qtcore)
 
 from modules.motion.motion_controller import MotionController
+from modules.motion.net_amc4xer import MotionProfile
 
 
 class DummyButton:
@@ -105,11 +106,11 @@ class DummyMotionWorker:
     def isRunning(self):
         return self.started
 
-    def submit_move(self, axis, direction, length_pulse, speed):
-        self.moves.append((axis, direction, length_pulse, speed))
+    def submit_move(self, axis, direction, length_pulse, profile):
+        self.moves.append((axis, direction, length_pulse, profile))
 
-    def submit_loop(self, axis, direction, length_pulse, speed, times, gap):
-        self.loops.append((axis, direction, length_pulse, speed, times, gap))
+    def submit_loop(self, axis, direction, length_pulse, profile, times, gap):
+        self.loops.append((axis, direction, length_pulse, profile, times, gap))
 
     def stop_loop(self):
         self.stopped = True
@@ -135,7 +136,7 @@ class DummyUi:
         self.Backward_circle = DummyButton()
         self.Emergency_Stop = DummyButton()
         self.distanceSpinBox = DummySpinBox(2)
-        self.Speed_Setting_val = DummySpinBox(3)
+        self.Speed_Setting_val = DummySpinBox(3.0)
         self.Axis_choice = DummyComboBox("X")
         self.Circle_times = DummySpinBox(2)
         self.distanceSpinBox_2 = DummySpinBox(4)
@@ -152,7 +153,9 @@ def test_single_axis_move_runs_in_background_thread(monkeypatch):
 
     assert controller.motion.calls == []
     assert len(DummyMotionWorker.created) == 1
-    assert DummyMotionWorker.created[0].moves == [(1, +1, 4000, 3)]
+    assert DummyMotionWorker.created[0].moves == [
+        (1, +1, 4000, MotionProfile(vo=600, vt=6000, acc_time=135, dec_time=135))
+    ]
     assert DummyMotionWorker.created[0].started is True
 
 
@@ -165,4 +168,6 @@ def test_loop_motion_uses_same_background_worker(monkeypatch):
     controller.start_loop(+1)
 
     assert len(DummyMotionWorker.created) == 1
-    assert DummyMotionWorker.created[0].loops == [(1, +1, 8000, 3, 2, 1)]
+    assert DummyMotionWorker.created[0].loops == [
+        (1, +1, 8000, MotionProfile(vo=600, vt=6000, acc_time=135, dec_time=135), 2, 1)
+    ]

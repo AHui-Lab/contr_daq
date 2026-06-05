@@ -3,7 +3,7 @@ from PySide6.QtCore import QTimer
 
 class UiUpdateScheduler:
     CAMERA_INTERVAL_MS = 66
-    PLOT_INTERVAL_MS = 33
+    PLOT_INTERVAL_MS = 100
     STATUS_INTERVAL_MS = 250
 
     def __init__(self, camera_callback, plot_callback, status_callback, timer_factory=QTimer):

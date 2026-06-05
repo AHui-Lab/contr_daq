@@ -7,6 +7,8 @@ import time
 
 
 class ForcePlot:
+    MAX_DISPLAY_POINTS = 3000
+
     def __init__(self, parent_widget, time_window=10.0):
         self.time_window = time_window
 
@@ -70,7 +72,14 @@ class ForcePlot:
             self.fbuf.popleft()
 
     def _update_curve(self):
+        x = np.array(self.tbuf)
+        y = np.array(self.fbuf)
+        if len(y) > self.MAX_DISPLAY_POINTS:
+            step = int(np.ceil(len(y) / self.MAX_DISPLAY_POINTS))
+            x = x[::step]
+            y = y[::step]
+
         self.curve.setData(
-            np.array(self.tbuf),
-            np.array(self.fbuf)
+            x,
+            y
         )

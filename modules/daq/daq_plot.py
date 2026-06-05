@@ -54,6 +54,8 @@ def generate_colors(n):
 
 
 class DaqPlot:
+    MAX_DISPLAY_POINTS = 3000
+
     def __init__(self, parent_widget, ui):
         self.mode = "time"  # "time" or "iv"
 
@@ -155,15 +157,23 @@ class DaqPlot:
                 self.buffers[ch] = np.concatenate((self.buffers[ch], y))
 
             self.buffers[ch] = self.buffers[ch][-max_points:]
-            t = np.arange(len(self.buffers[ch])) / fs
+            t, y_display = self._display_data(self.buffers[ch], fs)
 
             if ch not in self.curves:
                 pen = pg.mkPen(self.channel_color(ch), width=2)
                 self.curves[ch] = self.plot.plot(
-                    t, self.buffers[ch], pen=pen, name=ch
+                    t, y_display, pen=pen, name=ch
                 )
             else:
-                self.curves[ch].setData(t, self.buffers[ch])
+                self.curves[ch].setData(t, y_display)
+
+    def _display_data(self, values, fs):
+        if len(values) <= self.MAX_DISPLAY_POINTS:
+            return np.arange(len(values)) / fs, values
+
+        step = int(np.ceil(len(values) / self.MAX_DISPLAY_POINTS))
+        indices = np.arange(0, len(values), step)
+        return indices / fs, values[indices]
 
     # ================== Y 轴 ==================
     def on_auto_range(self, checked: bool):
