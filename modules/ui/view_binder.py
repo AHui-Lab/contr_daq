@@ -120,7 +120,9 @@ class ViewBinder:
             if widget is not None:
                 widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
 
-        self._set_max_height("tabWidget_4", 104)
+        self._set_min_height("tabWidget_4", 148)
+        self._set_max_height("tabWidget_4", 168)
+        self._stabilize_iv_panel()
         self._set_min_height("groupBox_2", 126)
         self._set_max_height("groupBox_2", 140)
         self._set_max_height("widget_5", 80)
@@ -223,6 +225,23 @@ class ViewBinder:
         widget = getattr(self.ui, widget_name, None)
         if widget is not None and hasattr(widget, "setTitle"):
             widget.setTitle(title)
+
+    def _stabilize_iv_panel(self) -> None:
+        for widget_name in (
+            "ivModeComboBox",
+            "ivRepeatSpinBox",
+            "ivStartSpinBox",
+            "ivStopSpinBox",
+            "ivStepSpinBox",
+            "ivControlButton",
+        ):
+            self._set_min_height(widget_name, 28)
+
+        for widget_name in ("ivModeComboBox", "ivStartSpinBox", "ivStopSpinBox", "ivStepSpinBox"):
+            self._set_min_width(widget_name, 120)
+
+        self._set_min_width("ivRepeatSpinBox", 72)
+        self._set_min_width("ivControlButton", 104)
 
     def _compact_force_panel(self) -> None:
         layout = getattr(self.ui, "gridLayout_6", None)

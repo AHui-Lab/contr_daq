@@ -275,6 +275,12 @@ class DummyUi:
         self.Backward_circle = DummyTextWidget()
         self.label_13 = DummyTextWidget()
         self.logTextEdit = DummyTextWidget()
+        self.ivModeComboBox = DummyTextWidget()
+        self.ivRepeatSpinBox = DummyTextWidget()
+        self.ivStartSpinBox = DummyTextWidget()
+        self.ivStopSpinBox = DummyTextWidget()
+        self.ivStepSpinBox = DummyTextWidget()
+        self.ivControlButton = DummyTextWidget()
         self.gridLayout_3 = DummyLayout()
         self.gridLayout_6 = DummyLayout()
         self.gridLayout_11 = DummyLayout()
@@ -344,6 +350,11 @@ def test_setup_keeps_channel_and_force_controls_readable():
     assert ui.groupBox_5.minimum_height >= 170
     assert ui.groupBox_5.maximum_height <= 185
     assert ui.groupBox_6.minimum_height >= 300
+    assert ui.tabWidget_4.minimum_height >= 148
+    assert ui.tabWidget_4.maximum_height >= 168
+    assert ui.ivStartSpinBox.minimum_height == 28
+    assert ui.ivStartSpinBox.minimum_width == 120
+    assert ui.ivControlButton.minimum_width == 104
     assert ui.totalForceLabel.minimum_width == 120
     assert ui.totalForceLabel.maximum_width == 120
     assert ui.Force1_Label.minimum_width == 88

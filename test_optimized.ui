@@ -410,7 +410,7 @@ QGroupBox::title {
               <double>0.100000000000000</double>
              </property>
              <property name="maximum">
-              <double>10.000000000000000</double>
+              <double>100.000000000000000</double>
              </property>
              <property name="singleStep">
               <double>0.100000000000000</double>
@@ -839,7 +839,7 @@ QGroupBox::title {
              <property name="maximumSize">
               <size>
                <width>16777215</width>
-               <height>120</height>
+               <height>168</height>
               </size>
              </property>
              <property name="styleSheet">

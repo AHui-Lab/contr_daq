@@ -14,7 +14,7 @@ class MotionController:
     }
     AXIS_MAP = {name: config["axis"] for name, config in AXIS_CONFIG.items()}
     MIN_SPEED_MM_S = 0.1
-    MAX_SPEED_MM_S = 10.0
+    MAX_SPEED_MM_S = 100.0
     START_SPEED_RATIO = 0.1
     MIN_START_SPEED_MM_S = 0.1
     MIN_RAMP_TIME_MS = 100
