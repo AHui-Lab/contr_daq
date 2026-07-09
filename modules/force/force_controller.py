@@ -1,5 +1,6 @@
 # modules/force/force_controller.py
 from collections import deque
+from threading import Lock
 
 import numpy as np
 
@@ -7,6 +8,7 @@ from modules.force.force_thread import ForceThread
 from modules.force.analog_force import AnalogForceConfig, convert_voltages_to_force
 from modules.force.analog_force_thread import AnalogForceProcessor, AnalogForceThread
 from modules.force.force_plot import ForcePlot
+from modules.app_config import AppConfig
 from modules.recorder.data_recorder import DataRecorder
 
 
@@ -20,8 +22,9 @@ class ForceController:
     ANALOG_MEDIAN_WINDOW = 3
     ANALOG_AVERAGE_WINDOW_MS = 20
 
-    def __init__(self, ui, recorder=None):
+    def __init__(self, ui, recorder=None, config=None):
         self.ui = ui
+        self.config = config or AppConfig()
 
         self.running = False
         self.latest_force = 0.0
@@ -30,9 +33,15 @@ class ForceController:
 
         self.zero_offset = np.zeros(self.CHANNEL_COUNT)
         self.zero_buffer = deque(maxlen=300)
-        self._pending_force_plot_rows = deque(maxlen=20)
+        self._state_lock = Lock()
+        self._pending_force_plot_rows = deque(maxlen=24)
+        self._force_display_sample_index = 0
 
-        self.plot = ForcePlot(self.ui.forcePlotWidget, time_window=10.0)
+        self.plot = ForcePlot(
+            self.ui.forcePlotWidget,
+            time_window=10.0,
+            max_display_points=self.config.max_display_points,
+        )
         self.thread = None
         self.recorder = recorder or DataRecorder()
 
@@ -82,14 +91,13 @@ class ForceController:
                 widget.setEnabled(analog_enabled)
 
     def start_record(self):
-        if self.thread is None:
-            print("[Recorder] please start force acquisition first")
-            return
-
         self.recorder.start()
 
     def stop_record(self):
         self.recorder.stop()
+
+    def apply_config(self):
+        self.plot.apply_max_display_points(self.config.max_display_points)
 
     def toggle(self):
         if self.thread and self.thread.isRunning():
@@ -134,12 +142,8 @@ class ForceController:
             output_rate=self.ANALOG_OUTPUT_RATE,
             median_window=self.ANALOG_MEDIAN_WINDOW,
             average_window_ms=self.ANALOG_AVERAGE_WINDOW_MS,
+            force_rows_callback=self._on_analog_force_chunk_from_thread,
         )
-        force_chunk_signal = getattr(self.thread, "force_chunk_ready", None)
-        if force_chunk_signal is not None:
-            force_chunk_signal.connect(self.on_analog_force_chunk)
-        else:
-            self.thread.chunk_ready.connect(self.on_analog_chunk)
         self.thread.started_ok.connect(self.on_started)
         self.thread.start()
 
@@ -148,17 +152,28 @@ class ForceController:
             self.thread.stop()
             self.thread = None
 
-        self.latest_vals = None
-        self.latest_force = 0.0
+        self.reset_runtime_state(clear_plot=False)
         self.running = False
         self.ui.forceStartButton.setText("开始")
 
-    def zero(self):
-        if len(self.zero_buffer) < self.ZERO_SAMPLE_COUNT:
-            print("[Force] not enough data to zero")
-            return
+    def reset_runtime_state(self, clear_plot=True):
+        with self._state_lock:
+            self.zero_offset = np.zeros(self.CHANNEL_COUNT)
+            self.zero_buffer.clear()
+            self._pending_force_plot_rows.clear()
+            self._force_display_sample_index = 0
+            self.latest_vals = None
+            self.latest_force = 0.0
+        if clear_plot and self.plot is not None:
+            self.plot.clear()
 
-        window = np.array(list(self.zero_buffer)[-self.ZERO_SAMPLE_COUNT:])
+    def zero(self):
+        with self._state_lock:
+            if len(self.zero_buffer) < self.ZERO_SAMPLE_COUNT:
+                print("[Force] not enough data to zero")
+                return
+            window = np.array(list(self.zero_buffer)[-self.ZERO_SAMPLE_COUNT:])
+
         half = self.ZERO_SAMPLE_COUNT // 2
 
         mean1 = np.mean(window[:half], axis=0)
@@ -172,7 +187,8 @@ class ForceController:
             print("[Force] force is still changing, zero failed")
             return
 
-        self.zero_offset = np.mean(window, axis=0)
+        with self._state_lock:
+            self.zero_offset = np.mean(window, axis=0)
         print("[Force] zero completed")
 
     def on_started(self, ok):
@@ -190,16 +206,17 @@ class ForceController:
         if self.active_mode == "analog":
             vals = convert_voltages_to_force(vals, self._analog_config())
 
-        if vals.size != self.zero_offset.size:
-            self.zero_offset = np.zeros(vals.size)
+        with self._state_lock:
+            if vals.size != self.zero_offset.size:
+                self.zero_offset = np.zeros(vals.size)
 
-        self.zero_buffer.append(vals)
+            self.zero_buffer.append(vals)
 
-        corrected_vals = vals - self.zero_offset
-        corrected_total = float(np.sum(corrected_vals))
+            corrected_vals = vals - self.zero_offset
+            corrected_total = float(np.sum(corrected_vals))
 
-        self.latest_vals = corrected_vals
-        self.latest_force = corrected_total
+            self.latest_vals = corrected_vals
+            self.latest_force = corrected_total
 
         if self.recorder.recording and self.active_mode != "analog":
             self.recorder.add_force_data(
@@ -208,22 +225,37 @@ class ForceController:
             )
 
     def on_analog_force_chunk(self, force_rows):
+        self._handle_analog_force_rows(force_rows)
+
+    def _on_analog_force_chunk_from_thread(self, force_rows):
+        self._handle_analog_force_rows(force_rows)
+
+    def _handle_analog_force_rows(self, force_rows):
         force_rows = np.asarray(force_rows, dtype=float)
         if force_rows.size == 0:
             return
         if force_rows.ndim == 1:
             force_rows = force_rows.reshape(1, -1)
-        if force_rows.shape[1] != self.zero_offset.size:
-            self.zero_offset = np.zeros(force_rows.shape[1])
 
         latest = force_rows[-1]
-        self.zero_buffer.append(latest)
-        corrected_rows = force_rows - self.zero_offset
-        latest_corrected = corrected_rows[-1]
+        with self._state_lock:
+            if force_rows.shape[1] != self.zero_offset.size:
+                self.zero_offset = np.zeros(force_rows.shape[1])
 
-        self.latest_vals = latest_corrected
-        self.latest_force = float(np.sum(latest_corrected))
-        self._pending_force_plot_rows.append(corrected_rows)
+            self.zero_buffer.append(latest)
+            corrected_rows = force_rows - self.zero_offset
+            latest_corrected = corrected_rows[-1]
+            row_count = len(corrected_rows)
+            start_index = self._force_display_sample_index
+            self._force_display_sample_index += row_count
+            times = (
+                np.arange(start_index, start_index + row_count)
+                / self.ANALOG_OUTPUT_RATE
+            )
+
+            self.latest_vals = latest_corrected
+            self.latest_force = float(np.sum(latest_corrected))
+            self._pending_force_plot_rows.append((times, corrected_rows))
 
         if self.recorder.recording:
             self.recorder.add_force_chunk(
@@ -242,32 +274,37 @@ class ForceController:
         self.on_analog_force_chunk(processor.process(rows))
 
     def update_ui(self):
-        if not self.running or self.latest_vals is None:
+        with self._state_lock:
+            latest_vals = None if self.latest_vals is None else self.latest_vals.copy()
+            latest_force = self.latest_force
+            pending_rows = list(self._pending_force_plot_rows)
+            self._pending_force_plot_rows.clear()
+
+        if not self.running or latest_vals is None:
             return
 
-        self.ui.totalForceLabel.setText(f"Total: {self.latest_force:.2f} N")
+        self.ui.totalForceLabel.setText(f"Total: {latest_force:.2f} N")
         channel_unit = "N"
 
-        for i, val in enumerate(self.latest_vals, start=1):
+        for i, val in enumerate(latest_vals, start=1):
             label = getattr(self.ui, f"Force{i}_Label", None)
             if label is not None:
                 label.setText(f"P{i}: {val:.2f} {channel_unit}")
 
         if self.active_mode == "analog":
-            self._flush_analog_plot()
+            self._flush_analog_plot(pending_rows)
         else:
-            self.plot.add_point(self.latest_force)
+            self.plot.add_point(latest_force)
 
-    def _flush_analog_plot(self):
-        if not self._pending_force_plot_rows:
+    def _flush_analog_plot(self, pending_rows):
+        if not pending_rows:
             return
 
-        rows = list(self._pending_force_plot_rows)
-        self._pending_force_plot_rows.clear()
-        force_rows = np.vstack(rows)
-        self.plot.add_samples(
+        times = np.concatenate([row[0] for row in pending_rows])
+        force_rows = np.vstack([row[1] for row in pending_rows])
+        self.plot.add_timed_samples(
+            times,
             np.sum(force_rows, axis=1),
-            sample_rate=self.ANALOG_OUTPUT_RATE,
         )
 
     def _selected_mode(self):

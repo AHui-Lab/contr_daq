@@ -110,3 +110,27 @@ def test_force_chunk_uses_sample_rate_timebase(monkeypatch, tmp_path):
         [0.0, 10.0, 1.0, 2.0, 3.0, 4.0],
         [0.001, 20.0, 2.0, 4.0, 6.0, 8.0],
     ]
+
+
+def test_iv_points_are_saved_to_separate_curve_file(monkeypatch, tmp_path):
+    times = iter([700.0, 700.1, 700.2])
+    monkeypatch.setattr(data_recorder.time, "time", lambda: next(times))
+
+    recorder = data_recorder.DataRecorder(save_dir=tmp_path)
+    recorder.start()
+    recorder.add_iv_point("ai0", 1.2, 0.03)
+    recorder.add_iv_point("ai1", 1.2, 0.04)
+    recorder.stop()
+
+    iv_files = list(tmp_path.glob("group1_iv_*.csv"))
+    assert len(iv_files) == 1
+
+    with iv_files[0].open(newline="") as f:
+        rows = list(csv.reader(f))
+
+    assert rows[0] == ["time", "channel", "voltage(V)", "current(mA)"]
+    assert float(rows[1][0]) == pytest.approx(0.1)
+    assert rows[1][1:] == ["ai0", "1.2", "0.03"]
+    assert float(rows[2][0]) == pytest.approx(0.2)
+    assert rows[2][1:] == ["ai1", "1.2", "0.04"]
+

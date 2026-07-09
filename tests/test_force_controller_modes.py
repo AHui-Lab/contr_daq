@@ -160,6 +160,7 @@ def test_start_analog_force_uses_independent_force_device_settings(monkeypatch):
         "output_rate": 400,
         "median_window": 3,
         "average_window_ms": 20,
+        "force_rows_callback": controller._on_analog_force_chunk_from_thread,
     }
 
 

@@ -77,3 +77,24 @@ def test_add_samples_prunes_old_points_by_time_window():
     x, y = DummyPlotWidget.last_curve.data_calls[-1]
     assert x == pytest.approx([0.1, 0.2, 0.3])
     assert y == pytest.approx([2.0, 3.0, 4.0])
+
+
+def test_add_samples_limits_display_points():
+    plot = ForcePlot(DummyParent(), time_window=10.0, max_display_points=50)
+
+    plot.add_samples(range(1000), sample_rate=1000.0)
+
+    x, y = DummyPlotWidget.last_curve.data_calls[-1]
+    assert len(x) <= 50
+    assert len(y) <= 50
+
+
+def test_add_timed_samples_preserves_explicit_time_axis():
+    plot = ForcePlot(DummyParent(), time_window=10.0)
+
+    plot.add_timed_samples([0.0, 1.0, 2.0], [10.0, 20.0, 30.0])
+    plot.add_timed_samples([5.0, 6.0], [40.0, 50.0])
+
+    x, y = DummyPlotWidget.last_curve.data_calls[-1]
+    assert x == pytest.approx([0.0, 1.0, 2.0, 5.0, 6.0])
+    assert y == pytest.approx([10.0, 20.0, 30.0, 40.0, 50.0])

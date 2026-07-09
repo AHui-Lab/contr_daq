@@ -14,12 +14,14 @@ class AnalogForceProcessor:
         output_rate=400,
         median_window=3,
         average_window_ms=20,
+        force_rows_callback=None,
     ):
         self.sample_rate = sample_rate
         self.force_config = force_config
         self.output_rate = output_rate
         self.median_window = median_window
         self.average_window_ms = average_window_ms
+        self.force_rows_callback = force_rows_callback
         self._median_buffers = []
         self._average_buffer = deque()
         self._sample_count = 0
@@ -95,6 +97,7 @@ class AnalogForceThread(QThread):
         output_rate=400,
         median_window=3,
         average_window_ms=20,
+        force_rows_callback=None,
     ):
         super().__init__()
         self.device = device
@@ -106,7 +109,9 @@ class AnalogForceThread(QThread):
         self.output_rate = output_rate
         self.median_window = median_window
         self.average_window_ms = average_window_ms
+        self.force_rows_callback = force_rows_callback
         self._running = True
+        self.read_timeout = self._read_timeout()
         self._processor = None
         if self.force_config is not None:
             self._processor = AnalogForceProcessor(
@@ -146,7 +151,7 @@ class AnalogForceThread(QThread):
                 while self._running:
                     data = task.read(
                         number_of_samples_per_channel=self.chunk_size,
-                        timeout=1.0,
+                        timeout=self.read_timeout,
                     )
                     if not self._running:
                         break
@@ -156,17 +161,22 @@ class AnalogForceThread(QThread):
 
                     rows = np.vstack([np.asarray(values, dtype=float) for values in data]).T
                     latest = rows[-1]
-                    self.chunk_ready.emit(rows)
+                    if self.force_rows_callback is None:
+                        self.chunk_ready.emit(rows)
 
                     if self.force_config is not None:
                         force_rows = self._process_force_rows(rows)
                         if force_rows.size:
-                            self.force_chunk_ready.emit(force_rows)
+                            if self.force_rows_callback is not None:
+                                self.force_rows_callback(force_rows)
+                            else:
+                                self.force_chunk_ready.emit(force_rows)
                             latest_force = force_rows[-1]
-                            self.data_ready.emit(
-                                float(np.sum(latest_force)),
-                                latest_force.tolist(),
-                            )
+                            if self.force_rows_callback is None:
+                                self.data_ready.emit(
+                                    float(np.sum(latest_force)),
+                                    latest_force.tolist(),
+                                )
                     else:
                         self.data_ready.emit(float(np.sum(latest)), latest.tolist())
 
@@ -183,3 +193,8 @@ class AnalogForceThread(QThread):
             return np.empty((0, np.asarray(rows).shape[-1]))
 
         return self._processor.process(rows)
+
+    def _read_timeout(self):
+        sample_rate = max(float(self.sample_rate), 1.0)
+        expected = self.chunk_size / sample_rate
+        return max(0.2, min(1.0, expected * 3.0))

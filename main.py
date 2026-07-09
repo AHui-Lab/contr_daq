@@ -2,10 +2,11 @@ import sys
 from pathlib import Path
 
 import pyqtgraph as pg
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QProcess, Qt
 from PySide6.QtUiTools import QUiLoader
 from PySide6.QtWidgets import QApplication
 
+from modules.app_config import AppConfig
 from modules.app_state import AppState
 from modules.camera.camera_controller import CameraController
 from modules.daq.ao_controller import AOController
@@ -16,6 +17,7 @@ from modules.force.force_controller import ForceController
 from modules.motion.motion_controller import MotionController
 from modules.recorder.data_recorder import DataRecorder
 from modules.ui.led_indicator import LedIndicatorManager
+from modules.ui.settings_dialog import SettingsDialog
 from modules.ui.theme import apply_graph_theme, build_stylesheet, patch_led_manager
 from modules.ui.update_scheduler import UiUpdateScheduler
 from modules.ui.view_binder import ViewBinder
@@ -25,6 +27,7 @@ from utils.log import bind_log_widget
 BASE_DIR = Path(__file__).resolve().parent
 ORIGINAL_UI_FILE = BASE_DIR / "test.ui"
 UI_FILE = BASE_DIR / "test_optimized.ui"
+CONFIG_FILE = BASE_DIR / "config.json"
 
 
 class MainWindow:
@@ -39,12 +42,14 @@ class MainWindow:
 
         self.view_binder = ViewBinder(self.ui, self.current_state)
         self.view_binder.setup()
+        self.config = AppConfig.load(CONFIG_FILE)
+        self._settings_dialog = None
 
         self.camera_controller_1 = CameraController(self.ui.Camera1, default_index=0)
         self.camera_controller_2 = CameraController(self.ui.Camera2, default_index=1)
 
-        self.plot = DaqPlot(self.ui.daqPlotWidget, self.ui)
-        self.led_manager = LedIndicatorManager(self.ui, threshold_mA=0.5)
+        self.plot = DaqPlot(self.ui.daqPlotWidget, self.ui, config=self.config)
+        self.led_manager = LedIndicatorManager(self.ui, config=self.config)
         patch_led_manager(self.led_manager)
         self.recorder = DataRecorder()
 
@@ -53,17 +58,25 @@ class MainWindow:
             self.plot,
             self.led_manager,
             recorder=self.recorder,
+            config=self.config,
         )
         self.ao_controller = AOController(self.ui)
         bind_log_widget(self.ui.logTextEdit)
 
         self.motion_controller = MotionController(self.ui)
-        self.force_controller = ForceController(self.ui, recorder=self.recorder)
+        self.force_controller = ForceController(
+            self.ui,
+            recorder=self.recorder,
+            config=self.config,
+        )
         self.iv_controller = IVController(
             ui=self.ui,
             daq_plot=self.plot,
             led_manager=self.led_manager,
+            recorder=self.recorder,
+            config=self.config,
         )
+        self._build_settings_menu()
         self.view_binder.refresh_static_text()
 
         self.update_scheduler = UiUpdateScheduler(
@@ -72,6 +85,59 @@ class MainWindow:
             status_callback=self.update_status_ui,
         )
         self.update_scheduler.start()
+
+    def _build_settings_menu(self):
+        menu = self.ui.menuBar().addMenu("设置")
+        action = menu.addAction("运行参数")
+        action.triggered.connect(self.open_settings)
+
+    def open_settings(self):
+        if self._settings_dialog is None:
+            self._settings_dialog = SettingsDialog(
+                self.config,
+                on_apply=self.apply_runtime_settings,
+                on_restart=self.restart_application,
+                on_reset_restart=self.reset_defaults_and_restart,
+                parent=self.ui,
+            )
+        self._settings_dialog.load_from_config()
+        self._settings_dialog.show()
+        self._settings_dialog.raise_()
+        self._settings_dialog.activateWindow()
+
+    def apply_runtime_settings(self):
+        self.config.save(CONFIG_FILE)
+        self.led_manager.apply_config()
+        self.plot.apply_config()
+        self.force_controller.apply_config()
+
+    def reset_defaults_and_restart(self):
+        self.config.reset_to_defaults()
+        self.apply_runtime_settings()
+        force_controller = getattr(self, "force_controller", None)
+        if force_controller is not None:
+            force_controller.reset_runtime_state()
+        self.restart_application(save_config=False)
+
+    def restart_application(self, save_config=True):
+        if save_config:
+            self.apply_runtime_settings()
+
+        self._stop_runtime_for_restart()
+        program, arguments = self._restart_command()
+        working_directory = str(BASE_DIR)
+
+        if QProcess.startDetached(program, arguments, working_directory):
+            QApplication.quit()
+        else:
+            print("[App] restart failed")
+
+    def _restart_command(self):
+        if getattr(sys, "frozen", False):
+            return sys.executable, sys.argv[1:]
+
+        script = str(Path(sys.argv[0]).resolve())
+        return sys.executable, [script, *sys.argv[1:]]
 
     def current_state(self) -> AppState:
         return AppState(
@@ -110,6 +176,10 @@ class MainWindow:
         self.view_binder.update_status()
 
     def closeEvent(self, event):
+        self._stop_runtime_for_restart()
+        event.accept()
+
+    def _stop_runtime_for_restart(self):
         for controller_name in ("camera_controller_1", "camera_controller_2"):
             controller = getattr(self, controller_name, None)
             if controller and controller.thread:
@@ -123,8 +193,6 @@ class MainWindow:
 
         if hasattr(self, "motion_controller"):
             self.motion_controller.shutdown()
-
-        event.accept()
 
     def _camera_running(self, controller_name: str) -> bool:
         controller = getattr(self, controller_name, None)

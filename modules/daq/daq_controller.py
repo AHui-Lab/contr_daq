@@ -1,39 +1,40 @@
 from collections import deque
+from threading import Lock
 
-from nidaqmx.system import System
-from .daq_thread import DaqThread
-from .daq_plot import DaqPlot
-from utils.log import log
 import numpy as np
+from nidaqmx.system import System
+
+from modules.app_config import AppConfig
 from modules.recorder.data_recorder import DataRecorder
+from modules.ui.plot_downsample import downsample_xy
+from utils.log import log
+from .daq_thread import DaqThread
+
 
 class DaqController:
-    def __init__(self, ui, plot, led_manager, recorder=None):
+    def __init__(self, ui, plot, led_manager, recorder=None, config=None):
         self.ui = ui
         self.plot = plot
         self.led_manager = led_manager
+        self.config = config or AppConfig()
 
-
-        # ===== Thread =====
         self.thread = None
-        self._pending_plot_chunks = deque(maxlen=20)
+        self._data_lock = Lock()
+        self._pending_plot_chunks = deque(maxlen=24)
+        self._latest_currents = {}
+        self._active_sample_rate = 1
+        self._active_sample_index = 0
+        self.recorder = recorder or DataRecorder()
 
-        # ===== UI 信号 =====
         self.ui.startStopButton.clicked.connect(self.toggle)
         self.ui.daqDeviceComboBox.currentIndexChanged.connect(
             self.on_device_changed
         )
-
         self.ui.recorderStartButton.clicked.connect(self.start_record)
         self.ui.recorderStopButton.clicked.connect(self.stop_record)
-        # ===== 初始化 =====
+
         self.refresh_devices()
 
-        self.recorder = recorder or DataRecorder()
-
-    # --------------------------------------------------
-    # 枚举 NI 设备
-    # --------------------------------------------------
     def refresh_devices(self):
         self.ui.daqDeviceComboBox.clear()
 
@@ -46,10 +47,6 @@ class DaqController:
             self.on_device_changed(0)
 
     def start_record(self):
-        if self.thread is None:
-            print("[Recorder] 请先启动DAQ")
-            return
-
         self.recorder.start()
 
     def stop_record(self):
@@ -60,9 +57,6 @@ class DaqController:
             return
         print(f"[DAQ] Selected device: {self.ui.daqDeviceComboBox.currentText()}")
 
-    # --------------------------------------------------
-    # Start / Stop
-    # --------------------------------------------------
     def toggle(self):
         if self.thread is None:
             self.start()
@@ -73,56 +67,33 @@ class DaqController:
         if self.thread is not None:
             print("[DAQ] Thread still running, ignore start")
             return
+
         device = self.ui.daqDeviceComboBox.currentText()
         fs = self.ui.sampleRateSpinBox.value()
-
-        # ⚠️ 这里只给逻辑通道名 ai0 / ai1
+        self._active_sample_rate = fs
+        self._active_sample_index = 0
         channels = [
             f"ai{i}"
             for i in range(16)
             if hasattr(self.ui, f"ai{i}CheckBox")
-               and getattr(self.ui, f"ai{i}CheckBox").isChecked()
+            and getattr(self.ui, f"ai{i}CheckBox").isChecked()
         ]
 
         if not channels:
             log("[DAQ] No channels selected")
             return
 
-        # 清图
         self.plot.set_mode_time()
         self.plot.clear()
-        self._pending_plot_chunks.clear()
+        self._clear_pending_data()
 
-        # 启动线程（与你的 DaqThread 完全匹配）
         self.thread = DaqThread(
             device=device,
             channels=channels,
             sample_rate=fs,
+            chunk_size=self.config.daq_chunk_size(fs),
+            data_callback=self._on_daq_data_from_thread,
         )
-
-        def on_daq_data(data):
-            self._pending_plot_chunks.append(data)
-
-            # === 电压 → 电流（按你的 IV 同样电路）===
-            currents = {}
-            for ch, v in data.items():
-                mean_v = float(np.mean(v))
-                current_mA = mean_v / (30.0 * 51.0) * 1000.0
-                currents[ch] = current_mA
-
-            self.led_manager.update_from_currents(currents)
-            if self.recorder.recording:
-                # shape: (chunk_size, 通道数)
-                channel_names = list(data.keys())
-                stacked = np.vstack([data[ch] for ch in channel_names]).T
-                self.recorder.add_daq_chunk(
-                    rows=stacked,
-                    sample_rate=fs,
-                    channels=channel_names,
-                )
-
-        self.thread.data_ready.connect(on_daq_data)
-
         self.thread.start()
 
         self._lock_ui(True)
@@ -132,42 +103,42 @@ class DaqController:
         if not self.thread:
             return
 
-        # 1️⃣ 请求线程退出
         self.thread.stop()
-
-        # 2️⃣ 等待线程真正结束（最多 1 秒）
         self.thread.wait(1000)
 
-        # 3️⃣ 断开信号（防止残留）
-        try:
-            self.thread.data_ready.disconnect()
-        except TypeError:
-            pass
-
         self.thread = None
-
-        # 4️⃣ 清空图像（停止时就清）
         self.plot.clear()
+        self._clear_pending_data()
 
-        # 5️⃣ UI 恢复
         self._lock_ui(False)
         self.ui.startStopButton.setText("开始")
 
-    # --------------------------------------------------
     def update_ui(self):
-        if not self._pending_plot_chunks:
-            return
+        with self._data_lock:
+            chunks = list(self._pending_plot_chunks)
+            self._pending_plot_chunks.clear()
+            currents = dict(self._latest_currents)
+            self._latest_currents.clear()
 
-        chunks = list(self._pending_plot_chunks)
-        self._pending_plot_chunks.clear()
+        if currents:
+            self.led_manager.update_from_currents(currents)
+
+        if not chunks:
+            return
 
         merged = {}
         for chunk in chunks:
             for ch, values in chunk.items():
-                merged.setdefault(ch, []).append(np.asarray(values))
+                t, y = values
+                entry = merged.setdefault(ch, {"t": [], "y": []})
+                entry["t"].append(np.asarray(t))
+                entry["y"].append(np.asarray(y))
 
         plot_data = {
-            ch: np.concatenate(values)
+            ch: (
+                np.concatenate(values["t"]),
+                np.concatenate(values["y"]),
+            )
             for ch, values in merged.items()
         }
         self.plot.update(
@@ -175,6 +146,42 @@ class DaqController:
             self.ui.sampleRateSpinBox.value(),
             self.ui.timeWindowSpinBox.value(),
         )
+
+    def _on_daq_data_from_thread(self, data):
+        sample_count = len(next(iter(data.values()))) if data else 0
+        start_index = self._active_sample_index
+        self._active_sample_index += sample_count
+
+        currents = {}
+        display_chunk = {}
+        t = (np.arange(sample_count) + start_index) / self._active_sample_rate
+        for ch, values in data.items():
+            mean_v = float(np.mean(values))
+            currents[ch] = self.config.current_mA(ch, mean_v)
+            display_t, display_y = downsample_xy(
+                t,
+                values,
+                max(100, min(500, self.config.max_display_points // 2)),
+            )
+            display_chunk[ch] = (display_t, display_y)
+
+        with self._data_lock:
+            self._pending_plot_chunks.append(display_chunk)
+            self._latest_currents.update(currents)
+
+        if self.recorder.recording:
+            channel_names = list(data.keys())
+            stacked = np.vstack([data[ch] for ch in channel_names]).T
+            self.recorder.add_daq_chunk(
+                rows=stacked,
+                sample_rate=self._active_sample_rate,
+                channels=channel_names,
+            )
+
+    def _clear_pending_data(self):
+        with self._data_lock:
+            self._pending_plot_chunks.clear()
+            self._latest_currents.clear()
 
     def _lock_ui(self, locked: bool):
         self.ui.daqDeviceComboBox.setDisabled(locked)
