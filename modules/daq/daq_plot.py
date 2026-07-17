@@ -3,6 +3,7 @@ import pyqtgraph as pg
 from PySide6.QtWidgets import QVBoxLayout
 import itertools
 from modules.ui.plot_downsample import downsample_xy
+from modules.ui.i18n import Translator
 
 def generate_colors(n):
     # 高对比科研级调色板（支持 32 路）
@@ -57,12 +58,13 @@ def generate_colors(n):
 class DaqPlot:
     MAX_DISPLAY_POINTS = 1200
 
-    def __init__(self, parent_widget, ui, config=None):
+    def __init__(self, parent_widget, ui, config=None, translator=None):
         self.mode = "time"  # "time" or "iv"
 
         self.parent = parent_widget
         self.ui = ui
         self.config = config
+        self.translator = translator or Translator("en")
         self.max_display_points = self._configured_max_display_points()
         self.max_buffer_points = self._configured_max_buffer_points()
 
@@ -113,14 +115,20 @@ class DaqPlot:
     def set_mode_time(self):
         self.mode = "time"
         # self.clear()
-        self.plot.setLabel("bottom", "Time", units="s")
-        self.plot.setLabel("left", "Voltage", units="V")
+        self.retranslate_ui()
 
     def set_mode_iv(self):
         self.mode = "iv"
         # self.clear()
-        self.plot.setLabel("bottom", "Voltage", units="V")
-        self.plot.setLabel("left", "Current", units="A")
+        self.retranslate_ui()
+
+    def retranslate_ui(self):
+        if self.mode == "iv":
+            self.plot.setLabel("bottom", self.translator("plot.voltage"), units="V")
+            self.plot.setLabel("left", self.translator("plot.current"), units="A")
+            return
+        self.plot.setLabel("bottom", self.translator("plot.time"), units="s")
+        self.plot.setLabel("left", self.translator("plot.voltage"), units="V")
 
     # ================== 清空 ==================
     def clear(self):

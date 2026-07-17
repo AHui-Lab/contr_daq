@@ -1,4 +1,5 @@
 import csv
+from types import SimpleNamespace
 
 import pytest
 import numpy as np
@@ -112,6 +113,35 @@ def test_force_chunk_uses_sample_rate_timebase(monkeypatch, tmp_path):
     ]
 
 
+def test_raw_force_voltage_chunk_is_saved_for_calibration(tmp_path):
+    recorder = data_recorder.DataRecorder(save_dir=tmp_path)
+    recorder.start(start_monotonic=10.0)
+    recorder.add_force_voltage_chunk(
+        rows=np.array([[0.1, -0.2, 0.3, 0.4], [0.2, -0.1, 0.4, 0.5]]),
+        sample_rate=2000,
+        source_start_monotonic=10.0,
+    )
+
+    paths = recorder.stop()
+
+    assert "force_voltage" in paths
+    with open(paths["force_voltage"], newline="") as f:
+        rows = list(csv.reader(f))
+    assert rows[0] == [
+        "time",
+        "P1_raw(V)",
+        "P2_raw(V)",
+        "P3_raw(V)",
+        "P4_raw(V)",
+    ]
+    assert [float(value) for value in rows[1]] == pytest.approx(
+        [0.0, 0.1, -0.2, 0.3, 0.4]
+    )
+    assert [float(value) for value in rows[2]] == pytest.approx(
+        [0.0005, 0.2, -0.1, 0.4, 0.5]
+    )
+
+
 def test_iv_points_are_saved_to_separate_curve_file(monkeypatch, tmp_path):
     times = iter([700.0, 700.1, 700.2])
     monkeypatch.setattr(data_recorder.time, "time", lambda: next(times))
@@ -133,4 +163,147 @@ def test_iv_points_are_saved_to_separate_curve_file(monkeypatch, tmp_path):
     assert rows[1][1:] == ["ai0", "1.2", "0.03"]
     assert float(rows[2][0]) == pytest.approx(0.2)
     assert rows[2][1:] == ["ai1", "1.2", "0.04"]
+
+
+def test_monotonic_capture_window_trims_late_daq_chunk(tmp_path):
+    recorder = data_recorder.DataRecorder(save_dir=tmp_path)
+    recorder.start(start_monotonic=100.0, metadata={"workflow": "single_led_scan"})
+    recorder.set_capture_end(100.002)
+
+    recorder.add_daq_chunk(
+        rows=np.arange(6, dtype=float).reshape(-1, 1),
+        sample_rate=1000,
+        channels=["ai0"],
+        source_start_monotonic=99.998,
+    )
+
+    assert [row[1] for row in recorder.daq_buffer] == [2.0, 3.0, 4.0]
+    assert [row[0] for row in recorder.daq_buffer] == pytest.approx(
+        [0.0, 0.001, 0.002]
+    )
+
+
+def test_setting_capture_end_trims_rows_already_in_the_buffer(tmp_path):
+    recorder = data_recorder.DataRecorder(save_dir=tmp_path)
+    recorder.start(start_monotonic=100.0)
+    recorder.add_daq_chunk(
+        rows=np.arange(6, dtype=float).reshape(-1, 1),
+        sample_rate=1000,
+        channels=["ai0"],
+        source_start_monotonic=100.0,
+    )
+    recorder.add_force_chunk(
+        rows=np.ones((6, 4)),
+        sample_rate=1000,
+        source_start_monotonic=100.0,
+    )
+    recorder.add_force_voltage_chunk(
+        rows=np.ones((6, 4)),
+        sample_rate=1000,
+        source_start_monotonic=100.0,
+    )
+
+    recorder.set_capture_end(100.002)
+
+    assert len(recorder.daq_buffer) == 3
+    assert len(recorder.force_buffer) == 3
+    assert len(recorder.force_voltage_buffer) == 3
+    assert recorder.daq_buffer[-1][0] == pytest.approx(0.002)
+    assert recorder.force_buffer[-1][0] == pytest.approx(0.002)
+    assert recorder.force_voltage_buffer[-1][0] == pytest.approx(0.002)
+
+
+def test_motion_telemetry_and_metadata_are_saved(tmp_path):
+    class State:
+        position = 123
+        speed = 4000
+        run_state = 3
+        io_state = 0
+        emergency = 0
+
+    recorder = data_recorder.DataRecorder(save_dir=tmp_path)
+    recorder.start(start_monotonic=10.0, metadata={"led_count": 8})
+    recorder.add_motion_sample(10.01, State())
+    paths = recorder.stop()
+
+    assert set(paths) == {"motion", "metadata"}
+    assert list(tmp_path.glob("group1_motion_*.csv"))
+    assert list(tmp_path.glob("group1_metadata_*.json"))
+
+
+def test_spatial_scan_and_led_summary_are_saved_as_separate_files(tmp_path):
+    recorder = data_recorder.DataRecorder(save_dir=tmp_path)
+    recorder.start(start_monotonic=10.0, metadata={"led_count": 1})
+    recorder.add_daq_chunk(
+        rows=[[0.25]],
+        sample_rate=1000,
+        channels=["ai0"],
+        source_start_monotonic=10.0,
+    )
+    recorder.set_spatial_scan(
+        SimpleNamespace(
+            spatial_header=[
+                "time_s",
+                "distance_mm",
+                "position_pulse",
+                "speed_mm_s",
+                "motion_state",
+                "led_index",
+                "ai0",
+            ],
+            spatial_rows=[[0.0, 0.0, 100.0, 1.0, 3, 1, 0.25]],
+            led_summary_header=["led_index", "sample_count", "ai0_mean_v"],
+            led_summary_rows=[[1, 1, 0.25]],
+        )
+    )
+
+    paths = recorder.stop()
+
+    assert "spatial" in paths
+    assert "led_summary" in paths
+    assert list(tmp_path.glob("group1_spatial_*.csv"))
+    assert list(tmp_path.glob("group1_led_summary_*.csv"))
+
+
+def test_sealed_recording_rejects_new_writes_and_configuration_changes(tmp_path):
+    recorder = data_recorder.DataRecorder(save_dir=tmp_path)
+    recorder.start(start_monotonic=10.0)
+    recorder.add_daq_chunk(
+        rows=[[1.0]],
+        sample_rate=1000,
+        channels=["ai0"],
+        source_start_monotonic=10.0,
+    )
+
+    assert recorder.seal() is True
+    assert recorder.recording is False
+    assert recorder.saving is True
+    assert recorder.start(start_monotonic=20.0) is False
+    assert recorder.set_save_dir(tmp_path / "other") is False
+    recorder.add_daq_chunk(
+        rows=[[2.0]],
+        sample_rate=1000,
+        channels=["ai0"],
+        source_start_monotonic=10.001,
+    )
+    assert len(recorder.daq_buffer) == 1
+
+    paths = recorder.save_sealed()
+
+    assert "daq" in paths
+    assert recorder.saving is False
+
+
+def test_output_folder_can_change_only_while_idle(tmp_path):
+    first = tmp_path / "first"
+    second = tmp_path / "second"
+    recorder = data_recorder.DataRecorder(save_dir=first)
+
+    assert recorder.set_save_dir(second) is True
+    assert recorder.save_dir == str(second)
+    assert second.is_dir()
+
+    recorder.start(start_monotonic=1.0)
+    assert recorder.set_save_dir(first) is False
+    assert recorder.save_dir == str(second)
 

@@ -140,9 +140,30 @@ class DummyRecorder:
     def __init__(self):
         self.recording = True
         self.force_chunks = []
+        self.force_chunk_starts = []
+        self.force_voltage_chunks = []
+        self.start_calls = []
+        self.metadata = {}
 
-    def add_force_chunk(self, rows, sample_rate):
+    def start(self, metadata=None, start_monotonic=None):
+        self.start_calls.append((metadata, start_monotonic))
+        self.recording = True
+        return True
+
+    def stop(self):
+        self.recording = False
+
+    def update_metadata(self, values):
+        self.metadata.update(values)
+
+    def add_force_chunk(self, rows, sample_rate, source_start_monotonic=None):
         self.force_chunks.append((rows.tolist(), sample_rate))
+        self.force_chunk_starts.append(source_start_monotonic)
+
+    def add_force_voltage_chunk(self, rows, sample_rate, source_start_monotonic=None):
+        self.force_voltage_chunks.append(
+            (rows.tolist(), sample_rate, source_start_monotonic)
+        )
 
 
 def test_start_analog_force_uses_independent_force_device_settings(monkeypatch):
@@ -154,14 +175,35 @@ def test_start_analog_force_uses_independent_force_device_settings(monkeypatch):
 
     assert DummyThread.created[0].kwargs == {
         "device": "DevForce",
+        "channels": ["ai0", "ai1", "ai2", "ai3"],
         "sample_rate": 2000,
         "terminal_config": "DIFFERENTIAL",
+        "input_min_voltage": -10.0,
+        "input_max_voltage": 10.0,
         "force_config": controller._analog_config(),
         "output_rate": 400,
         "median_window": 3,
-        "average_window_ms": 20,
+        "average_window_ms": 5,
         "force_rows_callback": controller._on_analog_force_chunk_from_thread,
+        "voltage_rows_callback": controller._on_analog_voltage_chunk_from_thread,
     }
+
+
+def test_manual_recording_uses_monotonic_clock_and_force_metadata(monkeypatch):
+    DummyThread.created = []
+    monkeypatch.setattr("modules.force.force_controller.AnalogForceThread", DummyThread)
+    monkeypatch.setattr("modules.force.force_controller.time.perf_counter", lambda: 42.5)
+    recorder = DummyRecorder()
+    recorder.recording = False
+    controller = ForceController(DummyUi(), recorder=recorder)
+    controller.start()
+
+    controller.start_record()
+
+    assert recorder.start_calls == [(None, 42.5)]
+    assert recorder.metadata["force_voltage_range"] == "0-10V"
+    assert recorder.metadata["force_daq_input_min_v"] == -10.0
+    assert recorder.metadata["force_daq_input_max_v"] == 10.0
 
 
 def test_analog_force_data_is_converted_from_voltage_to_newtons(monkeypatch):
@@ -177,6 +219,22 @@ def test_analog_force_data_is_converted_from_voltage_to_newtons(monkeypatch):
         [9.80665, 19.6133, 29.41995, 39.2266]
     )
     assert controller.latest_force == pytest.approx(98.0665)
+
+
+def test_running_force_conversion_uses_the_immutable_start_snapshot(monkeypatch):
+    DummyThread.created = []
+    monkeypatch.setattr("modules.force.force_controller.AnalogForceThread", DummyThread)
+    ui = DummyUi()
+    controller = ForceController(ui)
+    controller.start()
+
+    ui.forceVoltageRangeComboBox.text = "0-5V"
+    ui.forceFullScaleSpinBox.setValue(10.0)
+    controller.on_data(0.0, [1.0, 1.0, 1.0, 1.0])
+
+    assert controller.active_config.voltage_range == "0-10V"
+    assert controller.active_config.full_scale_force_n == pytest.approx(98.0665)
+    assert controller.latest_vals.tolist() == pytest.approx([9.80665] * 4)
 
 
 def test_analog_force_chunk_records_converted_newtons(monkeypatch):
@@ -225,3 +283,51 @@ def test_analog_force_chunk_filters_spike_before_400hz_output(monkeypatch):
     rows, sample_rate = recorder.force_chunks[0]
     assert rows[0] == pytest.approx([9.80665, 9.80665, 9.80665, 9.80665])
     assert sample_rate == 400
+
+
+def test_analog_force_chunk_uses_thread_sample_clock_timing(monkeypatch):
+    DummyThread.created = []
+    monkeypatch.setattr("modules.force.force_controller.AnalogForceThread", DummyThread)
+    recorder = DummyRecorder()
+    controller = ForceController(DummyUi(), recorder=recorder)
+    controller.start()
+    controller.thread.force_output_sample_rate = 400.0
+    controller.thread.force_chunk_start_monotonic = 123.25
+
+    controller._on_analog_force_chunk_from_thread([[1.0, 2.0, 3.0, 4.0]])
+
+    assert recorder.force_chunks[0][1] == 400.0
+    assert recorder.force_chunk_starts[0] == 123.25
+
+
+def test_raw_force_voltage_is_kept_for_calibration(monkeypatch):
+    DummyThread.created = []
+    monkeypatch.setattr("modules.force.force_controller.AnalogForceThread", DummyThread)
+    recorder = DummyRecorder()
+    controller = ForceController(DummyUi(), recorder=recorder)
+    controller.start()
+    controller.thread.sample_rate = 2000
+    controller.thread.voltage_chunk_start_monotonic = 321.5
+
+    controller._on_analog_voltage_chunk_from_thread(
+        [[0.1, 0.2, 0.3, 0.4], [0.2, 0.3, 0.4, 0.5]]
+    )
+
+    assert controller.latest_voltage_vals.tolist() == [0.2, 0.3, 0.4, 0.5]
+    assert recorder.force_voltage_chunks[0] == (
+        [[0.1, 0.2, 0.3, 0.4], [0.2, 0.3, 0.4, 0.5]],
+        2000.0,
+        321.5,
+    )
+
+
+def test_force_voltage_diagnostic_flags_range_and_clipping_risks():
+    config = ForceController(DummyUi())._analog_config()
+
+    assert ForceController._voltage_warning_for_rows([[0.0, 1.0, 2.0, 3.0]], config) == ""
+    assert "outside the selected transmitter range" in (
+        ForceController._voltage_warning_for_rows([[-0.5, 1.0, 2.0, 3.0]], config)
+    )
+    assert "clipping may occur" in (
+        ForceController._voltage_warning_for_rows([[9.9, 1.0, 2.0, 3.0]], config)
+    )

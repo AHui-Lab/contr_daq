@@ -1,5 +1,6 @@
 import numpy as np
 import nidaqmx
+import time
 from nidaqmx.constants import AcquisitionType, TerminalConfiguration
 from PySide6.QtCore import QThread, Signal
 
@@ -27,6 +28,7 @@ class DaqThread(QThread):
         self.recorder = recorder
         self.data_callback = data_callback
         self.read_timeout = self._read_timeout()
+        self.sample_clock_origin = None
 
     def run(self):
         try:
@@ -44,6 +46,7 @@ class DaqThread(QThread):
                 )
 
                 task.start()
+                self.sample_clock_origin = time.perf_counter()
 
                 while self._running:
                     data = task.read(

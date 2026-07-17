@@ -25,7 +25,12 @@ def test_daq_chunk_size_scales_with_sample_rate_and_is_bounded():
 
 def test_config_can_be_saved_and_loaded(tmp_path):
     path = tmp_path / "config.json"
-    config = AppConfig(led_threshold_mA=3.5, max_display_points=1200)
+    config = AppConfig(
+        led_threshold_mA=3.5,
+        max_display_points=1200,
+        operator_name="Operator A",
+        data_save_dir="D:/experiment-data",
+    )
     config.sample_resistances_ohm[0] = 220.0
     config.amplify_gains[0] = 8.0
 
@@ -34,6 +39,8 @@ def test_config_can_be_saved_and_loaded(tmp_path):
 
     assert loaded.led_threshold_mA == pytest.approx(3.5)
     assert loaded.max_display_points == 1200
+    assert loaded.operator_name == "Operator A"
+    assert loaded.data_save_dir == "D:/experiment-data"
     assert loaded.sample_resistances_ohm[0] == pytest.approx(220.0)
     assert loaded.amplify_gains[0] == pytest.approx(8.0)
 
@@ -49,3 +56,10 @@ def test_config_can_reset_to_defaults():
     assert config.sample_resistances_ohm[0] == pytest.approx(
         AppConfig().default_sample_resistance_ohm
     )
+
+
+def test_empty_output_directory_falls_back_to_data():
+    config = AppConfig(operator_name="  User  ", data_save_dir="  ")
+
+    assert config.operator_name == "User"
+    assert config.data_save_dir == "data"

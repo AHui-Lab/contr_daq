@@ -5,6 +5,9 @@ from pathlib import Path
 
 @dataclass
 class AppConfig:
+    ui_language: str = "en"
+    operator_name: str = ""
+    data_save_dir: str = "data"
     channel_count: int = 16
     default_sample_resistance_ohm: float = 100.0
     default_amplify_gain: float = 5.02
@@ -17,6 +20,11 @@ class AppConfig:
     amplify_gains: list[float] = field(default_factory=list)
 
     def __post_init__(self):
+        from modules.ui.i18n import normalize_language
+
+        self.ui_language = normalize_language(self.ui_language)
+        self.operator_name = str(self.operator_name or "").strip()
+        self.data_save_dir = str(self.data_save_dir or "data").strip() or "data"
         if not self.sample_resistances_ohm:
             self.sample_resistances_ohm = [
                 self.default_sample_resistance_ohm

@@ -13,7 +13,13 @@ def test_build_stylesheet_contains_workbench_sections():
 
     assert "QMainWindow" in stylesheet
     assert "QGroupBox" in stylesheet
+    assert "QGroupBox#groupBox_2" in stylesheet
+    assert "QTabWidget#tabWidget_4 QPushButton" in stylesheet
     assert "QPushButton#Emergency_Stop" in stylesheet
+    assert "QPushButton#Forward_circle:disabled" in stylesheet
+    assert "QGroupBox#groupBox_6 QPushButton#Emergency_Stop" in stylesheet
+    assert "QFrame#scanResultsMetrics" in stylesheet
+    assert "QLabel#scanResultQuality" in stylesheet
     assert "QPlainTextEdit" in stylesheet
 
 

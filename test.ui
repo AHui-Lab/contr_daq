@@ -1802,7 +1802,10 @@ QTabBar::tab:hover:!selected {
               <item row="2" column="3">
                <widget class="QDoubleSpinBox" name="forceFullScaleSpinBox">
                 <property name="decimals">
-                 <number>3</number>
+                 <number>4</number>
+                </property>
+                <property name="suffix">
+                 <string> N/ch</string>
                 </property>
                 <property name="minimum">
                  <double>0.001000000000000</double>
@@ -1811,7 +1814,7 @@ QTabBar::tab:hover:!selected {
                  <double>1000000.000000000000000</double>
                 </property>
                 <property name="value">
-                 <double>100.000000000000000</double>
+                 <double>98.066500000000005</double>
                 </property>
                </widget>
               </item>

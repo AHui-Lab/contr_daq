@@ -3,6 +3,7 @@ import types
 import importlib
 
 import pytest
+from modules.ui.i18n import Translator
 
 
 class DummyCurve:
@@ -19,8 +20,11 @@ class DummyCurve:
 class DummyPlotWidget:
     last_curve = None
 
+    def __init__(self):
+        self.label_calls = []
+
     def setLabel(self, *args, **kwargs):
-        pass
+        self.label_calls.append((args, kwargs))
 
     def showGrid(self, *args, **kwargs):
         pass
@@ -98,3 +102,12 @@ def test_add_timed_samples_preserves_explicit_time_axis():
     x, y = DummyPlotWidget.last_curve.data_calls[-1]
     assert x == pytest.approx([0.0, 1.0, 2.0, 5.0, 6.0])
     assert y == pytest.approx([10.0, 20.0, 30.0, 40.0, 50.0])
+
+
+def test_force_plot_retranslates_axis_labels():
+    plot = ForcePlot(DummyParent(), translator=Translator("zh_CN"))
+
+    plot.retranslate_ui()
+
+    assert any(args[:2] == ("bottom", "时间") for args, _ in plot.plot.label_calls)
+    assert any(args[:2] == ("left", "合力") for args, _ in plot.plot.label_calls)

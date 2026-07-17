@@ -1,6 +1,7 @@
 from PySide6.QtCore import QThread, Signal
 import numpy as np
 from collections import deque
+import time
 
 from modules.force.analog_force import convert_voltages_to_force
 from utils.log import log
@@ -13,7 +14,7 @@ class AnalogForceProcessor:
         force_config,
         output_rate=400,
         median_window=3,
-        average_window_ms=20,
+        average_window_ms=5,
         force_rows_callback=None,
     ):
         self.sample_rate = sample_rate
@@ -27,11 +28,19 @@ class AnalogForceProcessor:
         self._sample_count = 0
 
     def process(self, rows):
+        _, force_rows = self.process_with_voltage(rows)
+        return force_rows
+
+    def process_with_voltage(self, rows):
         filtered_voltage_rows = self._filter_voltage_rows(rows)
         if filtered_voltage_rows.size == 0:
-            return filtered_voltage_rows
+            return filtered_voltage_rows, filtered_voltage_rows
 
-        return convert_voltages_to_force(filtered_voltage_rows, self.force_config)
+        force_rows = convert_voltages_to_force(
+            filtered_voltage_rows,
+            self.force_config,
+        )
+        return filtered_voltage_rows, force_rows
 
     def _filter_voltage_rows(self, rows):
         voltage_rows = np.asarray(rows, dtype=float)
@@ -93,11 +102,14 @@ class AnalogForceThread(QThread):
         sample_rate=1000,
         terminal_config=DEFAULT_TERMINAL_CONFIG,
         chunk_size=100,
+        input_min_voltage=None,
+        input_max_voltage=None,
         force_config=None,
         output_rate=400,
         median_window=3,
-        average_window_ms=20,
+        average_window_ms=5,
         force_rows_callback=None,
+        voltage_rows_callback=None,
     ):
         super().__init__()
         self.device = device
@@ -106,12 +118,43 @@ class AnalogForceThread(QThread):
         self.terminal_config = terminal_config or self.DEFAULT_TERMINAL_CONFIG
         self.chunk_size = chunk_size
         self.force_config = force_config
+        if input_min_voltage is None or input_max_voltage is None:
+            if self.force_config is not None:
+                default_min, default_max = self.force_config.daq_input_limits
+            else:
+                default_min, default_max = -5.0, 5.0
+            input_min_voltage = (
+                default_min if input_min_voltage is None else input_min_voltage
+            )
+            input_max_voltage = (
+                default_max if input_max_voltage is None else input_max_voltage
+            )
+        self.input_min_voltage = float(input_min_voltage)
+        self.input_max_voltage = float(input_max_voltage)
+        if self.input_min_voltage >= self.input_max_voltage:
+            raise ValueError("NI analog input minimum must be below its maximum")
         self.output_rate = output_rate
         self.median_window = median_window
         self.average_window_ms = average_window_ms
         self.force_rows_callback = force_rows_callback
+        self.voltage_rows_callback = voltage_rows_callback
+        self.latest_raw_voltages = None
+        self.latest_filtered_voltages = None
         self._running = True
         self.read_timeout = self._read_timeout()
+        self.output_decimation = max(
+            1,
+            round(max(float(self.sample_rate), 1.0) / max(float(self.output_rate), 1.0)),
+        )
+        self.force_output_sample_rate = (
+            max(float(self.sample_rate), 1.0) / self.output_decimation
+        )
+        self.sample_clock_origin = None
+        self.voltage_chunk_start_monotonic = None
+        self.force_clock_origin = None
+        self.force_chunk_start_monotonic = None
+        self._voltage_sample_index = 0
+        self._force_output_sample_index = 0
         self._processor = None
         if self.force_config is not None:
             self._processor = AnalogForceProcessor(
@@ -137,6 +180,8 @@ class AnalogForceThread(QThread):
                     task.ai_channels.add_ai_voltage_chan(
                         f"{self.device}/{channel}",
                         terminal_config=terminal_config,
+                        min_val=self.input_min_voltage,
+                        max_val=self.input_max_voltage,
                     )
 
                 task.timing.cfg_samp_clk_timing(
@@ -146,6 +191,7 @@ class AnalogForceThread(QThread):
                 )
 
                 task.start()
+                self._initialize_sample_clock(time.perf_counter())
                 self.started_ok.emit(True)
 
                 while self._running:
@@ -161,12 +207,20 @@ class AnalogForceThread(QThread):
 
                     rows = np.vstack([np.asarray(values, dtype=float) for values in data]).T
                     latest = rows[-1]
+                    self.latest_raw_voltages = latest.copy()
+                    self._mark_voltage_chunk_timing(len(rows))
+                    if self.voltage_rows_callback is not None:
+                        self.voltage_rows_callback(rows)
                     if self.force_rows_callback is None:
                         self.chunk_ready.emit(rows)
 
                     if self.force_config is not None:
-                        force_rows = self._process_force_rows(rows)
+                        filtered_voltage_rows, force_rows = (
+                            self._process_voltage_and_force_rows(rows)
+                        )
                         if force_rows.size:
+                            self._mark_force_chunk_timing(len(force_rows))
+                            self.latest_filtered_voltages = filtered_voltage_rows[-1].copy()
                             if self.force_rows_callback is not None:
                                 self.force_rows_callback(force_rows)
                             else:
@@ -189,10 +243,47 @@ class AnalogForceThread(QThread):
         self.wait()
 
     def _process_force_rows(self, rows):
-        if self._processor is None:
-            return np.empty((0, np.asarray(rows).shape[-1]))
+        _, force_rows = self._process_voltage_and_force_rows(rows)
+        return force_rows
 
-        return self._processor.process(rows)
+    def _process_voltage_and_force_rows(self, rows):
+        if self._processor is None:
+            empty = np.empty((0, np.asarray(rows).shape[-1]))
+            return empty, empty
+
+        return self._processor.process_with_voltage(rows)
+
+    def _initialize_sample_clock(self, origin):
+        self.sample_clock_origin = float(origin)
+        self.voltage_chunk_start_monotonic = None
+        first_output_offset = (self.output_decimation - 1) / max(
+            float(self.sample_rate),
+            1.0,
+        )
+        self.force_clock_origin = self.sample_clock_origin + first_output_offset
+        self.force_chunk_start_monotonic = None
+        self._voltage_sample_index = 0
+        self._force_output_sample_index = 0
+
+    def _mark_voltage_chunk_timing(self, row_count):
+        if self.sample_clock_origin is None:
+            return None
+        self.voltage_chunk_start_monotonic = (
+            self.sample_clock_origin
+            + self._voltage_sample_index / max(float(self.sample_rate), 1.0)
+        )
+        self._voltage_sample_index += int(row_count)
+        return self.voltage_chunk_start_monotonic
+
+    def _mark_force_chunk_timing(self, row_count):
+        if self.force_clock_origin is None:
+            return None
+        self.force_chunk_start_monotonic = (
+            self.force_clock_origin
+            + self._force_output_sample_index / self.force_output_sample_rate
+        )
+        self._force_output_sample_index += int(row_count)
+        return self.force_chunk_start_monotonic
 
     def _read_timeout(self):
         sample_rate = max(float(self.sample_rate), 1.0)

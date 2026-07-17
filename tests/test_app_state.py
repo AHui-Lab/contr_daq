@@ -18,7 +18,7 @@ def test_state_summary_reflects_active_subsystems():
     state = AppState(
         daq_running=True,
         camera_1_running=True,
-        motion_loop_running=True,
+        motion_running=True,
         force_running=True,
         recording=True,
     )
@@ -27,7 +27,7 @@ def test_state_summary_reflects_active_subsystems():
     assert state.summary == {
         "daq": "Sampling",
         "camera": "Camera 1",
-        "motion": "Looping",
+        "motion": "Scanning",
         "force": "Streaming",
         "recording": "On",
     }

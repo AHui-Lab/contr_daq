@@ -5,6 +5,7 @@ import types
 import numpy as np
 
 from modules.app_config import AppConfig
+from modules.ui.i18n import Translator
 
 
 class DummySignal:
@@ -44,6 +45,7 @@ class DummyCurve:
 class DummyPlotWidget:
     last_curve = None
     last_plot_args = None
+    label_calls = []
 
     def showGrid(self, *args, **kwargs):
         pass
@@ -52,7 +54,7 @@ class DummyPlotWidget:
         pass
 
     def setLabel(self, *args, **kwargs):
-        pass
+        self.label_calls.append((args, kwargs))
 
     def clear(self):
         pass
@@ -128,3 +130,13 @@ def test_daq_plot_preserves_explicit_time_axis():
     x, y = DummyPlotWidget.last_curve.calls[-1]
     assert x == [0.0, 0.1, 1.0, 1.1]
     assert y == [1.0, 2.0, 3.0, 4.0]
+
+
+def test_daq_plot_retranslates_axis_labels():
+    translator = Translator("zh_CN")
+    plot = DaqPlot(DummyParent(), DummyUi(), translator=translator)
+
+    plot.retranslate_ui()
+
+    assert any(args[:2] == ("bottom", "时间") for args, _ in plot.plot.label_calls)
+    assert any(args[:2] == ("left", "电压") for args, _ in plot.plot.label_calls)

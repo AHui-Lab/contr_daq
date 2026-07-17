@@ -19,6 +19,9 @@ class IVWorker(QThread):
         voltages: list,
         settle_time=0.01,
         samples=100,
+        sample_rate=10_000,
+        ao_min_voltage=-10.0,
+        ao_max_voltage=10.0,
         shunt_resistance=30,
         amplify_gain=51.0,
         channel_resistances=None,
@@ -32,6 +35,9 @@ class IVWorker(QThread):
 
         self.settle_time = settle_time
         self.samples = samples
+        self.sample_rate = int(sample_rate)
+        self.ao_min_voltage = float(ao_min_voltage)
+        self.ao_max_voltage = float(ao_max_voltage)
 
         self.shunt = shunt_resistance
         self.gain = amplify_gain
@@ -49,7 +55,10 @@ class IVWorker(QThread):
 
                 # AO
                 ao_task.ao_channels.add_ao_voltage_chan(
-                    self.ao_channel, units=VoltageUnits.VOLTS
+                    self.ao_channel,
+                    min_val=self.ao_min_voltage,
+                    max_val=self.ao_max_voltage,
+                    units=VoltageUnits.VOLTS,
                 )
 
                 # AI
@@ -60,7 +69,7 @@ class IVWorker(QThread):
                     )
 
                 ai_task.timing.cfg_samp_clk_timing(
-                    rate=10_000,
+                    rate=self.sample_rate,
                     sample_mode=AcquisitionType.FINITE,
                     samps_per_chan=self.samples
                 )

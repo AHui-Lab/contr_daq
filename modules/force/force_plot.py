@@ -5,14 +5,16 @@ from PySide6.QtWidgets import QVBoxLayout
 from collections import deque
 import time
 from modules.ui.plot_downsample import downsample_xy
+from modules.ui.i18n import Translator
 
 
 class ForcePlot:
     MAX_DISPLAY_POINTS = 1200
 
-    def __init__(self, parent_widget, time_window=10.0, max_display_points=None):
+    def __init__(self, parent_widget, time_window=10.0, max_display_points=None, translator=None):
         self.time_window = time_window
         self.max_display_points = int(max_display_points or self.MAX_DISPLAY_POINTS)
+        self.translator = translator or Translator("en")
 
         if not parent_widget.layout():
             layout = QVBoxLayout(parent_widget)
@@ -23,8 +25,7 @@ class ForcePlot:
         self.plot = pg.PlotWidget()
         layout.addWidget(self.plot)
 
-        self.plot.setLabel("bottom", "Time", units="s")
-        self.plot.setLabel("left", "Total Force")
+        self.retranslate_ui()
         self.plot.showGrid(x=True, y=True)
         self._enable_plot_optimizations()
 
@@ -34,6 +35,10 @@ class ForcePlot:
 
         self.tbuf = deque()
         self.fbuf = deque()
+
+    def retranslate_ui(self):
+        self.plot.setLabel("bottom", self.translator("plot.time"), units="s")
+        self.plot.setLabel("left", self.translator("plot.total_force"))
 
     def clear(self):
         self.tbuf.clear()

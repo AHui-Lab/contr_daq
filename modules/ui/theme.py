@@ -26,6 +26,33 @@ STATUS_PILL_STYLE = """
     font-weight: 600;
 """
 
+STATUS_PILL_RUNNING_STYLE = """
+    background-color: #183326;
+    border: 1px solid #2f8652;
+    border-radius: 4px;
+    color: #8ff0b5;
+    padding: 4px 8px;
+    font-weight: 600;
+"""
+
+STATUS_PILL_WARNING_STYLE = """
+    background-color: #3b2b16;
+    border: 1px solid #b97822;
+    border-radius: 4px;
+    color: #ffd28a;
+    padding: 4px 8px;
+    font-weight: 600;
+"""
+
+STATUS_PILL_ERROR_STYLE = """
+    background-color: #421d20;
+    border: 1px solid #c94b55;
+    border-radius: 4px;
+    color: #ffabb2;
+    padding: 4px 8px;
+    font-weight: 700;
+"""
+
 CAMERA_PREVIEW_STYLE = """
     background-color: #050708;
     border: 1px solid #26323b;
@@ -41,10 +68,100 @@ QMainWindow {
     background-color: #10151a;
 }
 
+QFrame#workbenchHeader,
+QFrame#scanReadinessCard,
+QFrame#forceMonitoringBand {
+    background-color: #111a22;
+    border: 1px solid #293946;
+    border-radius: 6px;
+}
+
+QFrame#acquisitionPane,
+QFrame#observationPane,
+QFrame#motionPane {
+    background: transparent;
+    border: none;
+}
+
+QLabel#workspaceTitle {
+    color: #f2f7fa;
+    font-size: 17px;
+    font-weight: 700;
+}
+
+QLabel#workspaceSubtitle {
+    color: #8298a8;
+    font-size: 11px;
+}
+
+QLabel#workspaceModePill {
+    background-color: #162a38;
+    border: 1px solid #31566d;
+    border-radius: 4px;
+    color: #73d5ff;
+    padding: 5px 10px;
+    font-size: 10px;
+    font-weight: 700;
+}
+
+QLabel#readinessTitle {
+    color: #f4b860;
+    font-size: 10px;
+    font-weight: 700;
+}
+
+QLabel#readinessSummary {
+    color: #93a6b4;
+    font-size: 10px;
+}
+
+QFrame#scanResultsMetrics {
+    background-color: #111a22;
+    border: 1px solid #293946;
+    border-radius: 5px;
+}
+
+QLabel#scanResultMetricTitle,
+QLabel#scanResultSectionTitle {
+    color: #8298a8;
+    font-size: 10px;
+    font-weight: 600;
+}
+
+QLabel#scanResultMetricValue {
+    color: #d8e1ea;
+    font-weight: 600;
+}
+
+QLabel#scanResultQuality,
+QLabel#scanResultFolder {
+    background-color: #0b0f14;
+    border: 1px solid #263640;
+    border-radius: 4px;
+    color: #a9bac6;
+    padding: 6px;
+}
+
+QSplitter#workspaceSplitter::handle {
+    background-color: #1c2a34;
+    border-left: 1px solid #314554;
+    border-right: 1px solid #0b1116;
+}
+
+QSplitter#workspaceSplitter::handle:hover {
+    background-color: #31566d;
+}
+
+QDockWidget {
+    color: #d8e1ea;
+    titlebar-close-icon: none;
+    titlebar-normal-icon: none;
+}
+
 QWidget {
     background-color: #10151a;
     color: #d8e1ea;
-    font-family: "Microsoft YaHei UI", "Segoe UI", Arial, sans-serif;
+    font-family: "Inter", "Noto Sans SC";
     font-size: 12px;
 }
 
@@ -63,6 +180,16 @@ QGroupBox::title {
     left: 10px;
     padding: 0 6px;
     color: #f4b860;
+}
+
+QGroupBox#groupBox_2 {
+    margin-top: 14px;
+    padding: 4px 6px 5px 6px;
+}
+
+QGroupBox#groupBox_2::title {
+    left: 8px;
+    padding: 0 5px;
 }
 
 QTabWidget::pane {
@@ -124,7 +251,8 @@ QPushButton#startStopButton,
 QPushButton#ivControlButton,
 QPushButton#aoControlButton,
 QPushButton#forceStartButton,
-QPushButton#recorderStartButton {
+QPushButton#recorderStartButton,
+QPushButton#Forward_circle {
     border-color: #2f8652;
 }
 
@@ -132,9 +260,16 @@ QPushButton#startStopButton:hover,
 QPushButton#ivControlButton:hover,
 QPushButton#aoControlButton:hover,
 QPushButton#forceStartButton:hover,
-QPushButton#recorderStartButton:hover {
+QPushButton#recorderStartButton:hover,
+QPushButton#Forward_circle:hover {
     background-color: #203a2b;
     border-color: #2eea78;
+}
+
+QPushButton#Forward_circle:disabled {
+    background-color: #182028;
+    border-color: #3b4a55;
+    color: #6f808c;
 }
 
 QPushButton#Emergency_Stop {
@@ -160,6 +295,38 @@ QDoubleSpinBox {
     color: #9bd1ff;
     padding: 4px 7px;
     min-height: 22px;
+}
+
+QTabWidget#tabWidget_4 QPushButton,
+QWidget#widget_5 QPushButton {
+    min-height: 18px;
+    padding: 3px 8px;
+}
+
+QTabWidget#tabWidget_4 QComboBox,
+QTabWidget#tabWidget_4 QSpinBox,
+QTabWidget#tabWidget_4 QDoubleSpinBox,
+QWidget#widget_5 QSpinBox,
+QWidget#widget_5 QDoubleSpinBox {
+    min-height: 18px;
+    padding: 3px 6px;
+}
+
+QGroupBox#groupBox_6 QComboBox,
+QGroupBox#groupBox_6 QSpinBox,
+QGroupBox#groupBox_6 QDoubleSpinBox {
+    min-height: 16px;
+    padding: 1px 5px;
+}
+
+QGroupBox#groupBox_6 QPushButton {
+    min-height: 18px;
+    padding: 2px 8px;
+}
+
+QGroupBox#groupBox_6 QPushButton#Emergency_Stop {
+    min-height: 18px;
+    padding: 2px 8px;
 }
 
 QLineEdit:focus,
@@ -210,7 +377,7 @@ QLabel#Force2_Label,
 QLabel#Force3_Label,
 QLabel#Force4_Label {
     color: #2eea78;
-    font-family: Consolas, "Cascadia Mono", monospace;
+    font-family: "Inter", "Noto Sans SC";
     font-weight: 700;
 }
 
@@ -219,7 +386,7 @@ QPlainTextEdit {
     border: 1px solid #26323b;
     border-radius: 6px;
     color: #68d391;
-    font-family: Consolas, "Cascadia Mono", monospace;
+    font-family: "Inter", "Noto Sans SC";
     font-size: 11px;
     padding: 8px;
 }

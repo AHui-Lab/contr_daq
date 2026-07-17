@@ -41,3 +41,25 @@ def test_convert_voltages_to_force_accepts_numpy_rows():
     values = convert_voltages_to_force(np.array([1.0, 2.0, 3.0, 4.0]), config)
 
     assert values.tolist() == [2.0, 4.0, 6.0, 8.0]
+
+
+@pytest.mark.parametrize(
+    ("voltage_range", "expected"),
+    [
+        ("0-10V", (-10.0, 10.0)),
+        ("-10-10V", (-10.0, 10.0)),
+        ("0-5V", (-5.0, 5.0)),
+        ("-5-5V", (-5.0, 5.0)),
+    ],
+)
+def test_daq_input_limits_are_bipolar_for_ni_hardware(voltage_range, expected):
+    config = AnalogForceConfig(voltage_range=voltage_range)
+
+    assert config.daq_input_limits == expected
+
+
+def test_default_ten_kilogram_sensor_full_scale_is_98_newtons():
+    config = AnalogForceConfig()
+
+    assert config.full_scale_force == pytest.approx(98.0665)
+    assert config.force_per_volt == pytest.approx(9.80665)
