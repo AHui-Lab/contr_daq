@@ -331,3 +331,26 @@ def test_force_voltage_diagnostic_flags_range_and_clipping_risks():
     assert "clipping may occur" in (
         ForceController._voltage_warning_for_rows([[9.9, 1.0, 2.0, 3.0]], config)
     )
+
+
+def test_force_control_snapshot_uses_recent_median(monkeypatch):
+    DummyThread.created = []
+    monkeypatch.setattr("modules.force.force_controller.AnalogForceThread", DummyThread)
+    recorder = DummyRecorder()
+    controller = ForceController(DummyUi(), recorder=recorder)
+    controller.start()
+    controller.thread.force_output_sample_rate = 100.0
+    controller.thread.force_chunk_start_monotonic = 10.0
+
+    controller._on_analog_force_chunk_from_thread(
+        [
+            [1.0, 1.0, 1.0, 1.0],
+            [1.0, 1.0, 1.0, 1.0],
+            [10.0, 10.0, 10.0, 10.0],
+        ]
+    )
+
+    measured, sample_time = controller.force_control_snapshot(window_s=0.05)
+
+    assert measured == pytest.approx(4.0)
+    assert sample_time == pytest.approx(10.02)

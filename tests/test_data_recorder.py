@@ -142,6 +142,40 @@ def test_raw_force_voltage_chunk_is_saved_for_calibration(tmp_path):
     )
 
 
+def test_force_hold_corrections_are_saved_for_review(tmp_path):
+    recorder = data_recorder.DataRecorder(save_dir=tmp_path)
+    recorder.start(start_monotonic=10.0)
+    recorder.add_force_hold_event(
+        source_monotonic=10.2,
+        measured_force_n=9.5,
+        target_force_n=10.0,
+        error_n=0.5,
+        direction=1,
+        step_mm=0.002,
+        accumulated_z_mm=0.002,
+        z_position_pulse=1234,
+        status="applied",
+    )
+
+    paths = recorder.stop()
+
+    assert "force_hold" in paths
+    with open(paths["force_hold"], newline="") as f:
+        rows = list(csv.reader(f))
+    assert rows[0][1:] == [
+        "measured_force(N)",
+        "target_force(N)",
+        "error(N)",
+        "z_direction",
+        "z_step(mm)",
+        "accumulated_z(mm)",
+        "z_position_pulse_before",
+        "status",
+    ]
+    assert float(rows[1][0]) == pytest.approx(0.2)
+    assert rows[1][-1] == "applied"
+
+
 def test_iv_points_are_saved_to_separate_curve_file(monkeypatch, tmp_path):
     times = iter([700.0, 700.1, 700.2])
     monkeypatch.setattr(data_recorder.time, "time", lambda: next(times))
@@ -202,12 +236,24 @@ def test_setting_capture_end_trims_rows_already_in_the_buffer(tmp_path):
         sample_rate=1000,
         source_start_monotonic=100.0,
     )
+    recorder.add_force_hold_event(
+        100.004,
+        9.5,
+        10.0,
+        0.5,
+        1,
+        0.002,
+        0.002,
+        1234,
+        "applied",
+    )
 
     recorder.set_capture_end(100.002)
 
     assert len(recorder.daq_buffer) == 3
     assert len(recorder.force_buffer) == 3
     assert len(recorder.force_voltage_buffer) == 3
+    assert recorder.force_hold_buffer == []
     assert recorder.daq_buffer[-1][0] == pytest.approx(0.002)
     assert recorder.force_buffer[-1][0] == pytest.approx(0.002)
     assert recorder.force_voltage_buffer[-1][0] == pytest.approx(0.002)

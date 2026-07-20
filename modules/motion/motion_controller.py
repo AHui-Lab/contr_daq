@@ -20,6 +20,8 @@ class MotionController:
     MIN_START_SPEED_MM_S = 0.1
     MIN_RAMP_TIME_MS = 100
     MAX_RAMP_TIME_MS = 1000
+    FORCE_HOLD_Z_SPEED_MM_S = 0.1
+    MAX_FORCE_HOLD_STEP_MM = 0.0100
     BASE_DIR = Path(__file__).resolve().parents[2]
     dll_path = BASE_DIR / "dll" / "NET_AMC4XER.dll"
 
@@ -70,6 +72,48 @@ class MotionController:
             length_pulse,
             profile,
         )
+
+    def apply_force_hold_z_step(self, direction, distance_mm):
+        """Issue one non-blocking Z micro-step from the scan worker thread."""
+        step_mm = float(distance_mm)
+        if int(direction) not in (-1, 1):
+            raise ValueError("Force-hold Z direction must be +1 or -1")
+        if step_mm <= 0 or step_mm > self.MAX_FORCE_HOLD_STEP_MM:
+            raise ValueError(
+                f"Force-hold Z step must be within 0 to {self.MAX_FORCE_HOLD_STEP_MM:g} mm"
+            )
+
+        config = self.AXIS_CONFIG["Z"]
+        axis = config["axis"]
+        state = self.motion.read_axis_state(axis)
+        if state.emergency:
+            raise RuntimeError("Motion controller emergency input is active")
+        if state.run_state != 0:
+            return False, "busy", int(state.position)
+
+        length_pulse = max(1, round(step_mm * config["pulses_per_mm"]))
+        profile = self._build_motion_profile(
+            speed_mm_s=self.FORCE_HOLD_Z_SPEED_MM_S,
+            pulses_per_mm=config["pulses_per_mm"],
+            accel_mm_s2=config["accel_mm_s2"],
+        )
+        self.motion.enable_axis(axis)
+        result = self.motion.move_relative(
+            axis,
+            0 if int(direction) > 0 else 1,
+            length_pulse,
+            profile,
+        )
+        if result == -1:
+            raise ConnectionError("Force-hold Z motion command failed")
+        log(
+            f"[Force Hold] Z {'+' if direction > 0 else '-'}{step_mm:.4f} mm "
+            f"({length_pulse} pulses)"
+        )
+        return True, "applied", int(state.position)
+
+    def stop_force_hold_z(self):
+        return self.motion.stop_axis(self.AXIS_CONFIG["Z"]["axis"])
 
     def start_scan(
         self,

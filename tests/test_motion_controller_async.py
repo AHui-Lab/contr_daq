@@ -1,6 +1,8 @@
 import sys
 import types
 
+import pytest
+
 
 class DummySignal:
     def __init__(self, *args, **kwargs):
@@ -223,3 +225,42 @@ def test_scan_records_initial_position_before_motion_command():
     assert telemetry[0][1].position == 100
     assert telemetry[-1][1].position == 300
     assert len(capture_ends) == 1
+
+
+def test_force_hold_z_step_uses_small_positive_relative_move():
+    class ForceHoldMotion:
+        def __init__(self):
+            self.calls = []
+
+        def read_axis_state(self, axis):
+            self.calls.append(("read", axis))
+            return MotionState(500, 0, 0, 0, 0)
+
+        def enable_axis(self, axis):
+            self.calls.append(("enable", axis))
+            return 0
+
+        def move_relative(self, axis, direction, length, profile):
+            self.calls.append(("move", axis, direction, length, profile))
+            return -2
+
+    controller = object.__new__(MotionController)
+    controller.motion = ForceHoldMotion()
+
+    applied, detail, position = controller.apply_force_hold_z_step(+1, 0.002)
+
+    assert (applied, detail, position) == (True, "applied", 500)
+    move = controller.motion.calls[-1]
+    assert move[:4] == ("move", 3, 0, 22)
+    assert move[4].vt == pytest.approx(1096)
+
+
+def test_force_hold_z_step_waits_while_z_axis_is_busy():
+    class BusyMotion:
+        def read_axis_state(self, axis):
+            return MotionState(500, 3, 0, 0, 100)
+
+    controller = object.__new__(MotionController)
+    controller.motion = BusyMotion()
+
+    assert controller.apply_force_hold_z_step(-1, 0.002) == (False, "busy", 500)

@@ -23,6 +23,7 @@ class DataRecorder:
         self.daq_buffer = []
         self.force_buffer = []
         self.force_voltage_buffer = []
+        self.force_hold_buffer = []
         self.iv_buffer = []
         self.motion_buffer = []
         self.spatial_header = []
@@ -97,6 +98,9 @@ class DataRecorder:
                 row
                 for row in self.force_voltage_buffer
                 if float(row[0]) <= cutoff + 1e-9
+            ]
+            self.force_hold_buffer = [
+                row for row in self.force_hold_buffer if float(row[0]) <= cutoff + 1e-9
             ]
             self.motion_buffer = [
                 row for row in self.motion_buffer if float(row[0]) <= cutoff + 1e-9
@@ -253,6 +257,35 @@ class DataRecorder:
                 )
             self.force_voltage_sample_index += count
 
+    def add_force_hold_event(
+        self,
+        source_monotonic,
+        measured_force_n,
+        target_force_n,
+        error_n,
+        direction,
+        step_mm,
+        accumulated_z_mm,
+        z_position_pulse,
+        status,
+    ):
+        with self._lock:
+            if not self.recording or not self._within_capture(source_monotonic):
+                return
+            self.force_hold_buffer.append(
+                [
+                    float(source_monotonic) - self.start_time,
+                    float(measured_force_n),
+                    float(target_force_n),
+                    float(error_n),
+                    int(direction),
+                    float(step_mm),
+                    float(accumulated_z_mm),
+                    int(z_position_pulse),
+                    str(status),
+                ]
+            )
+
     def add_motion_sample(self, source_monotonic, state):
         with self._lock:
             if not self.recording or not self._within_capture(source_monotonic):
@@ -282,6 +315,7 @@ class DataRecorder:
                 not self.daq_buffer
                 and not self.force_buffer
                 and not self.force_voltage_buffer
+                and not self.force_hold_buffer
                 and not self.iv_buffer
                 and not self.motion_buffer
                 and not self.spatial_buffer
@@ -344,6 +378,28 @@ class DataRecorder:
 
                 print(f"[Recorder] Force Voltage Saved -> {voltage_path}")
                 saved_paths["force_voltage"] = voltage_path
+
+            if self.force_hold_buffer:
+                hold_file = f"group{self.group_id}_force_hold_{timestamp}.csv"
+                hold_path = os.path.join(self.save_dir, hold_file)
+                with open(hold_path, "w", newline="") as f:
+                    writer = csv.writer(f)
+                    writer.writerow(
+                        [
+                            "time",
+                            "measured_force(N)",
+                            "target_force(N)",
+                            "error(N)",
+                            "z_direction",
+                            "z_step(mm)",
+                            "accumulated_z(mm)",
+                            "z_position_pulse_before",
+                            "status",
+                        ]
+                    )
+                    writer.writerows(self.force_hold_buffer)
+                print(f"[Recorder] Force Hold Saved -> {hold_path}")
+                saved_paths["force_hold"] = hold_path
 
             if self.iv_buffer:
                 iv_file = f"group{self.group_id}_iv_{timestamp}.csv"

@@ -1,7 +1,7 @@
 from collections.abc import Callable
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QLabel, QSizePolicy
+from PySide6.QtWidgets import QCheckBox, QDoubleSpinBox, QLabel, QSizePolicy
 
 from modules.app_state import AppState
 from modules.app_runtime import RuntimeStatus
@@ -108,6 +108,9 @@ class ViewBinder:
             "scanLedCountLabel": t("label.led_count"),
             "scanLedSizeLabel": t("label.led_size"),
             "scanDistanceLabel": t("label.scan_distance"),
+            "forceHoldEnableCheckBox": t("force_hold.enable"),
+            "forceHoldToleranceLabel": t("force_hold.tolerance"),
+            "forceHoldStepLabel": t("force_hold.z_step"),
             "label_2": t("label.device"),
             "label": t("label.rate_hz"),
             "label_3": t("label.repeat"),
@@ -198,7 +201,7 @@ class ViewBinder:
         self._set_min_height("forcePlotWidget", 168)
         self._set_min_height("groupBox_5", 170)
         self._set_max_height("groupBox_5", 180)
-        self._set_min_height("groupBox_6", 280)
+        self._set_min_height("groupBox_6", 350)
         self._set_min_width("forceStartButton", 88)
         self._set_min_width("forceZeroButton", 88)
         self._stabilize_force_value_labels()
@@ -486,6 +489,8 @@ class ViewBinder:
         for widget_name in (
             "daqDeviceComboBox",
             "sampleRateSpinBox",
+            "forceHoldToleranceSpinBox",
+            "forceHoldStepSpinBox",
             "startStopButton",
             "aoChannelComboBox",
             "aoVoltageSpinBox",
@@ -548,6 +553,8 @@ class ViewBinder:
             "scanLedSizeLabel",
             "scanDistanceLabel",
             "scanQualityLabel",
+            "forceHoldToleranceLabel",
+            "forceHoldStepLabel",
         ):
             if getattr(self.ui, object_name, None) is None:
                 parent = getattr(self.ui, "groupBox_6", None)
@@ -559,12 +566,45 @@ class ViewBinder:
                     label.setObjectName(object_name)
                 setattr(self.ui, object_name, label)
 
+        parent = getattr(self.ui, "groupBox_6", None)
+        if getattr(self.ui, "forceHoldEnableCheckBox", None) is None:
+            checkbox = QCheckBox(parent)
+            checkbox.setObjectName("forceHoldEnableCheckBox")
+            checkbox.setChecked(False)
+            self.ui.forceHoldEnableCheckBox = checkbox
+        for object_name in (
+            "forceHoldToleranceSpinBox",
+            "forceHoldStepSpinBox",
+        ):
+            if getattr(self.ui, object_name, None) is None:
+                spinbox = QDoubleSpinBox(parent)
+                spinbox.setObjectName(object_name)
+                spinbox.setKeyboardTracking(False)
+                setattr(self.ui, object_name, spinbox)
+
+        tolerance = self.ui.forceHoldToleranceSpinBox
+        tolerance.setRange(0.01, 10.0)
+        tolerance.setDecimals(2)
+        tolerance.setSingleStep(0.05)
+        tolerance.setValue(0.20)
+        tolerance.setSuffix(" N")
+        step = self.ui.forceHoldStepSpinBox
+        step.setRange(0.0001, 0.0100)
+        step.setDecimals(4)
+        step.setSingleStep(0.0005)
+        step.setValue(0.0020)
+        step.setSuffix(" mm")
+
         t = self.translator
         self.ui.scanAxisLabel.setText(t("label.scan_axis"))
         self.ui.scanDirectionLabel.setText(t("label.scan_direction"))
         self.ui.scanLedCountLabel.setText(t("label.led_count"))
         self.ui.scanLedSizeLabel.setText(t("label.led_size"))
         self.ui.scanDistanceLabel.setText(t("label.scan_distance"))
+        self.ui.forceHoldEnableCheckBox.setText(t("force_hold.enable"))
+        self.ui.forceHoldToleranceLabel.setText(t("force_hold.tolerance"))
+        self.ui.forceHoldStepLabel.setText(t("force_hold.z_step"))
+        self.ui.forceHoldEnableCheckBox.setToolTip(t("force_hold.tooltip"))
         self.ui.scanQualityLabel.setText("")
 
         placement = {
@@ -582,6 +622,10 @@ class ViewBinder:
             "Speed_Setting_val": (5, 1),
             "label": (6, 0),
             "sampleRateSpinBox": (6, 1),
+            "forceHoldToleranceLabel": (8, 0),
+            "forceHoldToleranceSpinBox": (8, 1),
+            "forceHoldStepLabel": (9, 0),
+            "forceHoldStepSpinBox": (9, 1),
         }
 
         for object_name, position in placement.items():
@@ -591,15 +635,20 @@ class ViewBinder:
             layout.removeWidget(widget)
             layout.addWidget(widget, *position)
 
+        force_hold_enable = getattr(self.ui, "forceHoldEnableCheckBox", None)
+        if force_hold_enable is not None:
+            layout.removeWidget(force_hold_enable)
+            layout.addWidget(force_hold_enable, 7, 0, 1, 2)
+
         quality_label = getattr(self.ui, "scanQualityLabel", None)
         if quality_label is not None:
             layout.removeWidget(quality_label)
-            layout.addWidget(quality_label, 7, 0, 1, 2)
+            layout.addWidget(quality_label, 10, 0, 1, 2)
 
         start_button = getattr(self.ui, "Forward_circle", None)
         if start_button is not None:
             layout.removeWidget(start_button)
-            layout.addWidget(start_button, 8, 0, 1, 2)
+            layout.addWidget(start_button, 11, 0, 1, 2)
 
         cancel_button = getattr(self.ui, "Backward_circle", None)
         if cancel_button is not None and hasattr(cancel_button, "setVisible"):
@@ -608,7 +657,7 @@ class ViewBinder:
         stop_button = getattr(self.ui, "Emergency_Stop", None)
         if stop_button is not None:
             layout.removeWidget(stop_button)
-            layout.addWidget(stop_button, 9, 0, 1, 2)
+            layout.addWidget(stop_button, 12, 0, 1, 2)
 
         daq_layout = getattr(self.ui, "gridLayout_9", None)
         if daq_layout is not None:
@@ -621,11 +670,11 @@ class ViewBinder:
         if speed_label is not None and hasattr(speed_label, "setVisible"):
             speed_label.setVisible(True)
 
-        for row in range(10):
+        for row in range(13):
             if hasattr(layout, "setRowMinimumHeight"):
                 layout.setRowMinimumHeight(row, 0)
             if hasattr(layout, "setRowStretch"):
-                layout.setRowStretch(row, 1 if row == 7 else 0)
+                layout.setRowStretch(row, 1 if row == 10 else 0)
 
         for column in range(2):
             if hasattr(layout, "setColumnStretch"):

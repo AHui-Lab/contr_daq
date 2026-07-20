@@ -1,11 +1,13 @@
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from enum import Enum
+from math import isfinite
 from pathlib import Path
 import time
 
 from modules.app_runtime import RuntimeStatus, ni_resource
 from modules.daq.device_catalog import selected_device_name
+from modules.workflow.force_hold import ForceHoldConfig, ForceHoldController
 from modules.workflow.scan_analysis import build_spatial_scan_analysis
 from utils.log import log
 
@@ -148,6 +150,9 @@ class LedScanWorkflow:
         "forceFullScaleSpinBox",
         "forceStartButton",
         "forceZeroButton",
+        "forceHoldEnableCheckBox",
+        "forceHoldToleranceSpinBox",
+        "forceHoldStepSpinBox",
         "scanLoadConfirmButton",
         "distanceSpinBox",
         "xPosButton",
@@ -200,6 +205,8 @@ class LedScanWorkflow:
         self._save_worker = None
         self._save_bridge = None
         self._save_started_at = 0.0
+        self._force_hold = ForceHoldController()
+        self._force_hold_config_snapshot = ForceHoldConfig()
         self._configure_inputs()
         self._connect_inputs()
         self.update_preview()
@@ -209,6 +216,17 @@ class LedScanWorkflow:
         return self.state is not ScanWorkflowState.IDLE
 
     def retranslate_ui(self):
+        for widget_name, key in (
+            ("forceHoldEnableCheckBox", "force_hold.enable"),
+            ("forceHoldToleranceLabel", "force_hold.tolerance"),
+            ("forceHoldStepLabel", "force_hold.z_step"),
+        ):
+            widget = getattr(self.ui, widget_name, None)
+            if widget is not None and hasattr(widget, "setText"):
+                widget.setText(self._t(key))
+        checkbox = getattr(self.ui, "forceHoldEnableCheckBox", None)
+        if checkbox is not None and hasattr(checkbox, "setToolTip"):
+            checkbox.setToolTip(self._t("force_hold.tooltip"))
         if self.state is ScanWorkflowState.PREPARING:
             self._set_feedback(self._t("scan.preparing"), warning=False)
         elif self.state is ScanWorkflowState.RUNNING:
@@ -275,6 +293,7 @@ class LedScanWorkflow:
         self._last_result = None
         self._last_failure = None
         self._active_plan = plan
+        self._force_hold_config_snapshot = self._force_hold_config()
         self._capture_started = False
         self._abort_requested = False
         self.state = ScanWorkflowState.PREPARING
@@ -452,6 +471,30 @@ class LedScanWorkflow:
             )
         if plan.distance_mm <= 0 or plan.led_count <= 0:
             blockers.append(self._t("scan.invalid_dimensions"))
+        force_hold_config = self._force_hold_config()
+        if force_hold_config.enabled:
+            if plan.axis == "Z":
+                blockers.append(self._t("scan.force_hold_z_axis"))
+            target = self._confirmed_force_n
+            if (
+                target is None
+                or not isfinite(float(target))
+                or target <= force_hold_config.tolerance_n
+            ):
+                blockers.append(self._t("scan.force_hold_target"))
+            else:
+                measured, sample_time = self._force_snapshot()
+                now = time.perf_counter()
+                if (
+                    measured is None
+                    or sample_time is None
+                    or not isfinite(float(measured))
+                    or not isfinite(float(sample_time))
+                    or now - sample_time > force_hold_config.signal_timeout_s
+                ):
+                    blockers.append(self._t("scan.force_hold_signal"))
+                elif abs(float(target) - float(measured)) > force_hold_config.hard_error_n:
+                    blockers.append(self._t("scan.force_hold_initial_error"))
         if plan.triangular_expected:
             warnings.append(self._t("scan.triangular"))
         if plan.samples_per_led < self.MIN_SAMPLES_PER_LED:
@@ -503,6 +546,20 @@ class LedScanWorkflow:
 
     def _begin_motion(self):
         plan = self._active_plan
+        try:
+            if self._force_hold_config_snapshot.enabled:
+                self._force_hold.arm(
+                    self._force_hold_config_snapshot,
+                    target_force_n=self._confirmed_force_n,
+                    now=time.perf_counter(),
+                )
+            else:
+                self._force_hold.disarm()
+        except (TypeError, ValueError) as exc:
+            if self._force_hold_config_snapshot.enabled:
+                self._fail(self._t("scan.invalid_plan", detail=str(exc)))
+                return
+            self._force_hold.disarm()
         self.state = ScanWorkflowState.RUNNING
         self._progress_origin = None
         self._progress_percent = 0.0
@@ -521,13 +578,17 @@ class LedScanWorkflow:
             if self.runtime is not None:
                 self.runtime.set("recording", RuntimeStatus.RUNNING)
 
+        def telemetry(clock, state):
+            self.recorder.add_motion_sample(clock, state)
+            self._on_force_hold_tick(clock)
+
         started = self.motion.start_scan(
             axis_name=plan.axis,
             direction=plan.direction,
             distance_mm=plan.distance_mm,
             telemetry_interval_ms=plan.motion_telemetry_interval_ms,
             on_capture_start=capture_start,
-            on_telemetry=self.recorder.add_motion_sample,
+            on_telemetry=telemetry,
             on_capture_end=self.recorder.set_capture_end,
             on_finished=self._on_motion_finished,
         )
@@ -594,6 +655,7 @@ class LedScanWorkflow:
         force_snapshot = getattr(self.force, "active_configuration_metadata", None)
         if callable(force_snapshot):
             metadata.update(force_snapshot())
+        metadata.update(self._force_hold_metadata())
         return metadata
 
     def _monitor_active_streams(self):
@@ -639,12 +701,167 @@ class LedScanWorkflow:
             self._show_running_progress()
 
     def _show_running_progress(self):
-        text = self._t("scan.progress", progress=self._progress_percent)
+        hold = self._force_hold.snapshot()
+        if hold.get("force_hold_armed"):
+            text = self._t(
+                "scan.force_hold_running",
+                progress=self._progress_percent,
+                force=hold["force_hold_measured_n"],
+                target=hold["force_hold_target_n"],
+                offset=hold["force_hold_accumulated_z_mm"],
+            )
+        else:
+            text = self._t("scan.progress", progress=self._progress_percent)
         self._set_feedback(text, warning=False)
+
+    def _on_force_hold_tick(self, sample_clock):
+        if not self._force_hold.snapshot().get("force_hold_armed"):
+            return
+        measured, force_clock = self._force_snapshot()
+        if measured is None or force_clock is None:
+            decision = self._force_hold.evaluate(
+                float("nan"),
+                float("nan"),
+                sample_clock,
+            )
+        else:
+            decision = self._force_hold.evaluate(
+                measured,
+                force_clock,
+                sample_clock,
+            )
+
+        if decision.kind == "abort":
+            detail = self._force_hold_reason_text(decision.reason)
+            self._record_force_hold_event(
+                sample_clock,
+                decision,
+                accumulated_z_mm=self._force_hold.snapshot()[
+                    "force_hold_accumulated_z_mm"
+                ],
+                z_position_pulse=0,
+                status=f"abort:{decision.reason}",
+            )
+            self._stop_force_hold_z()
+            raise RuntimeError(self._t("scan.force_hold_abort", detail=detail))
+
+        if decision.kind != "correct":
+            return
+        try:
+            applied, status, z_position = self.motion.apply_force_hold_z_step(
+                decision.direction,
+                decision.step_mm,
+            )
+        except Exception as exc:
+            self._record_force_hold_event(
+                sample_clock,
+                decision,
+                accumulated_z_mm=self._force_hold.snapshot()[
+                    "force_hold_accumulated_z_mm"
+                ],
+                z_position_pulse=0,
+                status=f"failed:{type(exc).__name__}",
+            )
+            self._stop_force_hold_z()
+            detail = self._t("scan.force_hold_motion_failed", detail=str(exc))
+            raise RuntimeError(self._t("scan.force_hold_abort", detail=detail)) from exc
+        if not applied:
+            return
+
+        self._force_hold.accept(decision)
+        snapshot = self._force_hold.snapshot()
+        self._record_force_hold_event(
+            sample_clock,
+            decision,
+            accumulated_z_mm=snapshot["force_hold_accumulated_z_mm"],
+            z_position_pulse=z_position,
+            status=status,
+        )
+
+    def _force_hold_config(self):
+        enabled_widget = getattr(self.ui, "forceHoldEnableCheckBox", None)
+        tolerance_widget = getattr(self.ui, "forceHoldToleranceSpinBox", None)
+        step_widget = getattr(self.ui, "forceHoldStepSpinBox", None)
+        enabled = bool(
+            enabled_widget is not None
+            and hasattr(enabled_widget, "isChecked")
+            and enabled_widget.isChecked()
+        )
+        tolerance = (
+            float(tolerance_widget.value())
+            if tolerance_widget is not None and hasattr(tolerance_widget, "value")
+            else 0.20
+        )
+        step = (
+            float(step_widget.value())
+            if step_widget is not None and hasattr(step_widget, "value")
+            else 0.0020
+        )
+        return ForceHoldConfig(
+            enabled=enabled,
+            tolerance_n=tolerance,
+            z_step_mm=step,
+        )
+
+    def _force_hold_metadata(self):
+        force_hold = getattr(self, "_force_hold", None)
+        if force_hold is not None:
+            return force_hold.snapshot()
+        return ForceHoldController().snapshot()
+
+    def _force_snapshot(self):
+        getter = getattr(self.force, "force_control_snapshot", None)
+        if callable(getter):
+            return getter(window_s=0.05)
+        latest = getattr(self.force, "latest_force", None)
+        if latest is None:
+            return None, None
+        return float(latest), time.perf_counter()
+
+    def _record_force_hold_event(
+        self,
+        sample_clock,
+        decision,
+        accumulated_z_mm,
+        z_position_pulse,
+        status,
+    ):
+        add_event = getattr(self.recorder, "add_force_hold_event", None)
+        if callable(add_event):
+            add_event(
+                source_monotonic=sample_clock,
+                measured_force_n=decision.measured_force_n,
+                target_force_n=decision.target_force_n,
+                error_n=decision.error_n,
+                direction=decision.direction,
+                step_mm=decision.step_mm,
+                accumulated_z_mm=accumulated_z_mm,
+                z_position_pulse=z_position_pulse,
+                status=status,
+            )
+
+    def _stop_force_hold_z(self):
+        stop = getattr(self.motion, "stop_force_hold_z", None)
+        if callable(stop):
+            try:
+                stop()
+            except Exception as exc:
+                log(f"[Force Hold] Z stop failed: {type(exc).__name__}: {exc}", "error")
+
+    def _force_hold_reason_text(self, reason):
+        keys = {
+            "stale_signal": "scan.force_hold_stale_signal",
+            "invalid_signal": "scan.force_hold_invalid_signal",
+            "force_error_limit": "scan.force_hold_force_error_limit",
+            "z_travel_limit": "scan.force_hold_z_travel_limit",
+        }
+        return self._t(keys.get(reason, "scan.force_hold_invalid_signal"))
 
     def _on_motion_finished(self, completed, detail):
         if self.state is not ScanWorkflowState.RUNNING:
             return
+        if self._force_hold.snapshot().get("force_hold_armed"):
+            self._stop_force_hold_z()
         self.state = ScanWorkflowState.SAVING
         self._progress_percent = 100.0 if completed else self._progress_percent
         self._set_controls_locked(True)
@@ -776,6 +993,7 @@ class LedScanWorkflow:
                 "scan_completed": bool(completed),
                 "scan_completion_detail": str(detail),
                 **self._capture_summary_metadata(),
+                **self._force_hold_metadata(),
             }
         )
         self.recorder.update_metadata(quality)
@@ -901,6 +1119,7 @@ class LedScanWorkflow:
                 "scan_completed": bool(completed),
                 "scan_completion_detail": str(detail),
                 **self._capture_summary_metadata(),
+                **self._force_hold_metadata(),
             }
         )
         try:
@@ -1032,6 +1251,7 @@ class LedScanWorkflow:
             "data_rows": {
                 "daq": len(getattr(self.recorder, "daq_buffer", ())),
                 "force": len(getattr(self.recorder, "force_buffer", ())),
+                "force_hold": len(getattr(self.recorder, "force_hold_buffer", ())),
                 "motion": len(getattr(self.recorder, "motion_buffer", ())),
                 "spatial": len(getattr(self.recorder, "spatial_buffer", ())),
                 "led_summary": len(
@@ -1096,6 +1316,7 @@ class LedScanWorkflow:
         self._started_daq = False
         self._capture_started = False
         self._abort_requested = False
+        self._force_hold.disarm("scan_finished")
         self.state = ScanWorkflowState.IDLE
         self._set_controls_locked(False)
         self._reset_load_confirmation()
@@ -1119,6 +1340,13 @@ class LedScanWorkflow:
         self.ui.distanceSpinBox_2.setButtonSymbols(
             self.ui.distanceSpinBox_2.ButtonSymbols.NoButtons
         )
+        self._on_force_hold_toggled(
+            bool(
+                getattr(self.ui, "forceHoldEnableCheckBox", None)
+                and self.ui.forceHoldEnableCheckBox.isChecked()
+            ),
+            refresh=False,
+        )
 
     def _connect_inputs(self):
         self.ui.Forward_circle.clicked.connect(self.toggle_scan)
@@ -1134,6 +1362,10 @@ class LedScanWorkflow:
         confirm_signal = getattr(confirm_button, "toggled", None)
         if confirm_signal is not None:
             confirm_signal.connect(self._on_load_confirmation_changed)
+        force_hold_checkbox = getattr(self.ui, "forceHoldEnableCheckBox", None)
+        force_hold_signal = getattr(force_hold_checkbox, "toggled", None)
+        if force_hold_signal is not None:
+            force_hold_signal.connect(self._on_force_hold_toggled)
         for widget in (
             self.ui.Axis_choice,
             self.ui.direction_choice,
@@ -1141,7 +1373,11 @@ class LedScanWorkflow:
             self.ui.Gap_time,
             self.ui.Speed_Setting_val,
             self.ui.sampleRateSpinBox,
+            getattr(self.ui, "forceHoldToleranceSpinBox", None),
+            getattr(self.ui, "forceHoldStepSpinBox", None),
         ):
+            if widget is None:
+                continue
             signal = getattr(widget, "currentIndexChanged", None)
             if signal is None:
                 signal = getattr(widget, "valueChanged", None)
@@ -1165,9 +1401,10 @@ class LedScanWorkflow:
         if self.running:
             return
         if checked:
-            self._confirmed_force_n = float(
-                getattr(self.force, "latest_force", 0.0)
-            )
+            measured, _sample_clock = self._force_snapshot()
+            if measured is None:
+                measured = getattr(self.force, "latest_force", 0.0)
+            self._confirmed_force_n = float(measured)
             self._load_confirmed_at = datetime.now().astimezone().isoformat(
                 timespec="seconds"
             )
@@ -1179,6 +1416,18 @@ class LedScanWorkflow:
         self.ui.scanLoadConfirmed = bool(checked)
         self._set_runtime_scan(RuntimeStatus.READY)
         self.refresh_readiness(preserve_result=False)
+
+    def _on_force_hold_toggled(self, checked, refresh=True):
+        enabled = bool(checked) and not self._controls_locked
+        for widget_name in (
+            "forceHoldToleranceSpinBox",
+            "forceHoldStepSpinBox",
+        ):
+            widget = getattr(self.ui, widget_name, None)
+            if widget is not None and hasattr(widget, "setEnabled"):
+                widget.setEnabled(enabled)
+        if refresh and not self.running:
+            self.update_preview()
 
     def _set_controls_locked(self, locked):
         widget_names = [*self.INTERLOCK_WIDGETS]

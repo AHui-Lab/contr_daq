@@ -96,6 +96,13 @@ TRANSLATIONS = {
         "label.led_count": "LED Count",
         "label.led_size": "LED Size (mm)",
         "label.scan_distance": "Scan Distance (mm)",
+        "force_hold.enable": "Force Hold (Experimental)",
+        "force_hold.tolerance": "Force Tolerance",
+        "force_hold.z_step": "Z Correction Step",
+        "force_hold.tooltip": (
+            "Optional test controller. Uses the confirmed total force as the target. "
+            "Z+ is assumed to reduce the gap and increase force."
+        ),
         "label.repeat": "Repeat",
         "label.start_voltage": "Start Voltage",
         "label.step_voltage": "Voltage Step",
@@ -146,6 +153,21 @@ TRANSLATIONS = {
         "scan.invalid_dimensions_short": "Invalid LED geometry",
         "scan.not_ready_short": "Not ready · review details",
         "scan.invalid_plan": "Review the scan parameters: {detail}",
+        "scan.force_hold_z_axis": "Force Hold cannot be used while Z is the scan axis",
+        "scan.force_hold_target": "Confirm a positive load above the selected force tolerance",
+        "scan.force_hold_signal": "A fresh force value is required for Force Hold",
+        "scan.force_hold_initial_error": (
+            "Current force differs too much from the confirmed Force Hold target"
+        ),
+        "scan.force_hold_running": (
+            "Scan {progress:.0f}% · F {force:.2f}/{target:.2f} N · Z {offset:+.4f} mm"
+        ),
+        "scan.force_hold_abort": "Force Hold stopped the scan: {detail}",
+        "scan.force_hold_stale_signal": "force data became stale",
+        "scan.force_hold_invalid_signal": "force data became invalid",
+        "scan.force_hold_force_error_limit": "force error exceeded the safety limit",
+        "scan.force_hold_z_travel_limit": "maximum Z correction was reached",
+        "scan.force_hold_motion_failed": "Z correction command failed: {detail}",
         "scan.daq_start_failed": "DAQ could not start; check the device and AI channels",
         "scan.prepare_timeout": "DAQ or force acquisition did not become ready",
         "scan.daq_lost": "DAQ acquisition stopped unexpectedly; stopping the scan",
@@ -315,6 +337,13 @@ TRANSLATIONS = {
         "label.led_count": "LED 数量",
         "label.led_size": "单颗 LED 尺寸 (mm)",
         "label.scan_distance": "扫描距离 (mm)",
+        "force_hold.enable": "力保持（实验）",
+        "force_hold.tolerance": "力容差",
+        "force_hold.z_step": "Z 轴修正步长",
+        "force_hold.tooltip": (
+            "可选的测试闭环，以确认负载时的合力为目标。"
+            "默认 Z+ 会减小间隙并增大压力。"
+        ),
         "label.repeat": "重复次数",
         "label.start_voltage": "起始电压",
         "label.step_voltage": "电压步进",
@@ -365,6 +394,19 @@ TRANSLATIONS = {
         "scan.invalid_dimensions_short": "LED 几何参数无效",
         "scan.not_ready_short": "尚未就绪 · 请查看详情",
         "scan.invalid_plan": "请检查扫描参数：{detail}",
+        "scan.force_hold_z_axis": "Z 轴作为扫描轴时不能启用力保持",
+        "scan.force_hold_target": "请确认大于力容差的正向负载",
+        "scan.force_hold_signal": "力保持需要新鲜的力数据",
+        "scan.force_hold_initial_error": "当前力与已确认目标相差过大",
+        "scan.force_hold_running": (
+            "扫描 {progress:.0f}% · 力 {force:.2f}/{target:.2f} N · Z {offset:+.4f} mm"
+        ),
+        "scan.force_hold_abort": "力保持已终止扫描：{detail}",
+        "scan.force_hold_stale_signal": "力数据过期",
+        "scan.force_hold_invalid_signal": "力数据无效",
+        "scan.force_hold_force_error_limit": "力误差超过安全限制",
+        "scan.force_hold_z_travel_limit": "已达到 Z 轴最大修正量",
+        "scan.force_hold_motion_failed": "Z 轴修正命令失败：{detail}",
         "scan.daq_start_failed": "DAQ 无法启动，请检查设备与 AI 通道",
         "scan.prepare_timeout": "DAQ 或力采集未能及时就绪",
         "scan.daq_lost": "DAQ 采集意外停止，正在停止扫描",

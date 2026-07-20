@@ -4,6 +4,7 @@ import re
 from modules.motion.net_amc4xer import MotionProfile
 from modules.app_runtime import RuntimeStateStore, RuntimeStatus
 from modules.recorder.data_recorder import DataRecorder
+from modules.workflow.force_hold import ForceHoldConfig, ForceHoldController
 from modules.workflow.led_scan import (
     LedScanWorkflow,
     ScanPlan,
@@ -132,6 +133,15 @@ class DummyTextControl:
         self.style = style
 
 
+class DummyValueControl(DummyTextControl):
+    def __init__(self, value, enabled=True):
+        super().__init__(enabled=enabled)
+        self._value = value
+
+    def value(self):
+        return self._value
+
+
 def _translator(key, **values):
     if not values:
         return key
@@ -240,6 +250,99 @@ def test_preflight_requires_explicit_operator_load_confirmation():
 
     assert readiness.can_start is False
     assert "scan.load_confirmation_required" in readiness.blockers
+
+
+def test_force_hold_preflight_blocks_z_scan_axis(monkeypatch):
+    plan = ScanPlan.build(
+        axis="Z",
+        direction=1,
+        led_count=10,
+        led_size_mm=0.1,
+        speed_mm_s=1.0,
+        sample_rate_hz=1000,
+        profile=MotionProfile(vo=100, vt=1000, acc_time=100, dec_time=100),
+        pulses_per_mm=1000,
+    )
+    workflow = _ready_workflow(plan)
+    workflow.ui.forceHoldEnableCheckBox = DummyCheckBox(True)
+    workflow.ui.forceHoldToleranceSpinBox = DummyValueControl(0.2)
+    workflow.ui.forceHoldStepSpinBox = DummyValueControl(0.002)
+    workflow._confirmed_force_n = 10.0
+    workflow.force.latest_force = 10.0
+    workflow.force.force_control_snapshot = lambda window_s: (10.0, 5.0)
+    monkeypatch.setattr("modules.workflow.led_scan.time.perf_counter", lambda: 5.0)
+
+    readiness = workflow._evaluate_readiness(plan)
+
+    assert "scan.force_hold_z_axis" in readiness.blockers
+
+
+def test_force_hold_tick_applies_z_positive_and_records_event():
+    workflow = object.__new__(LedScanWorkflow)
+    workflow.translator = _translator
+    workflow._force_hold = ForceHoldController()
+    workflow._force_hold.arm(
+        ForceHoldConfig(enabled=True),
+        target_force_n=10.0,
+        now=1.0,
+    )
+    force_clock = [1.20]
+    workflow._force_snapshot = lambda: (9.5, force_clock[0])
+    moves = []
+    workflow.motion = type(
+        "Motion",
+        (),
+        {
+            "apply_force_hold_z_step": lambda self, direction, step: (
+                moves.append((direction, step)) or (True, "applied", 1234)
+            ),
+            "stop_force_hold_z": lambda self: None,
+        },
+    )()
+    events = []
+    workflow.recorder = type(
+        "Recorder",
+        (),
+        {"add_force_hold_event": lambda self, **values: events.append(values)},
+    )()
+
+    workflow._on_force_hold_tick(1.20)
+    force_clock[0] = 1.26
+    workflow._on_force_hold_tick(1.26)
+
+    assert moves == [(1, pytest.approx(0.002))]
+    assert events[0]["status"] == "applied"
+    assert events[0]["accumulated_z_mm"] == pytest.approx(0.002)
+
+
+def test_force_hold_tick_aborts_scan_when_force_signal_is_stale():
+    workflow = object.__new__(LedScanWorkflow)
+    workflow.translator = _translator
+    workflow._force_hold = ForceHoldController()
+    workflow._force_hold.arm(
+        ForceHoldConfig(enabled=True),
+        target_force_n=10.0,
+        now=1.0,
+    )
+    workflow._force_snapshot = lambda: (10.0, 1.0)
+    stops = []
+    workflow.motion = type(
+        "Motion",
+        (),
+        {"stop_force_hold_z": lambda self: stops.append(True)},
+    )()
+    events = []
+    workflow.recorder = type(
+        "Recorder",
+        (),
+        {"add_force_hold_event": lambda self, **values: events.append(values)},
+    )()
+
+    with pytest.raises(RuntimeError, match="scan.force_hold_abort"):
+        workflow._on_force_hold_tick(1.5)
+
+    assert stops == [True]
+    assert events[0]["status"] == "abort:stale_signal"
 
 
 def test_scan_interlock_restores_previous_enabled_states_and_keeps_stop_live():
@@ -395,6 +498,7 @@ def test_capture_summary_metadata_records_duration_and_stream_rows():
     assert metadata["data_rows"] == {
         "daq": 3,
         "force": 2,
+        "force_hold": 0,
         "motion": 1,
         "spatial": 0,
         "led_summary": 0,
@@ -415,6 +519,21 @@ def test_load_confirmation_is_reset_for_the_next_scan():
     assert workflow.ui.scanLoadConfirmed is False
     assert workflow._confirmed_force_n is None
     assert workflow._load_confirmed_at == ""
+
+
+def test_load_confirmation_uses_filtered_force_snapshot():
+    workflow = object.__new__(LedScanWorkflow)
+    workflow.state = ScanWorkflowState.IDLE
+    workflow.force = type("Force", (), {"latest_force": 99.0})()
+    workflow.ui = type("UI", (), {})()
+    workflow._force_snapshot = lambda: (8.25, 12.0)
+    workflow._set_runtime_scan = lambda status: None
+    workflow.refresh_readiness = lambda preserve_result: None
+
+    workflow._on_load_confirmation_changed(True)
+
+    assert workflow._confirmed_force_n == pytest.approx(8.25)
+    assert workflow.ui.scanLoadConfirmed is True
 
 
 def test_finalize_saves_position_mapped_led_outputs(tmp_path):
