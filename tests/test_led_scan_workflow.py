@@ -277,6 +277,72 @@ def test_force_hold_preflight_blocks_z_scan_axis(monkeypatch):
     assert "scan.force_hold_z_axis" in readiness.blockers
 
 
+def test_force_hold_accepts_negative_individual_channels_when_total_is_positive(
+    monkeypatch,
+):
+    plan = ScanPlan.build(
+        axis="Y",
+        direction=1,
+        led_count=10,
+        led_size_mm=1.0,
+        speed_mm_s=5.0,
+        sample_rate_hz=1000,
+        profile=MotionProfile(vo=1000, vt=10000, acc_time=100, dec_time=100),
+        pulses_per_mm=2000,
+    )
+    workflow = _ready_workflow(plan)
+    workflow.ui.forceHoldEnableCheckBox = DummyCheckBox(True)
+    workflow.ui.forceHoldToleranceSpinBox = DummyValueControl(0.2)
+    workflow.ui.forceHoldStepSpinBox = DummyValueControl(0.002)
+    workflow.force.latest_vals = [-2.0, 4.0, -1.0, 9.0]
+    workflow.force.latest_force = 10.0
+    workflow.force.force_control_snapshot = lambda window_s: (10.0, 5.0)
+    workflow._confirmed_force_n = 10.0
+    monkeypatch.setattr("modules.workflow.led_scan.time.perf_counter", lambda: 5.0)
+
+    readiness = workflow._evaluate_readiness(plan)
+
+    assert readiness.can_start is True
+    assert readiness.blockers == ()
+
+
+def test_force_hold_status_explains_each_enablement_step():
+    workflow = object.__new__(LedScanWorkflow)
+    workflow.translator = _translator
+    workflow._force_hold = ForceHoldController()
+    workflow._confirmed_force_n = None
+    workflow.ui = type("UI", (), {})()
+    workflow.ui.forceHoldStatusLabel = DummyTextControl()
+    workflow.ui.forceHoldEnableCheckBox = DummyCheckBox(True)
+    workflow.ui.forceHoldToleranceSpinBox = DummyValueControl(0.2)
+    workflow.ui.forceHoldStepSpinBox = DummyValueControl(0.002)
+    workflow.ui.scanLoadConfirmButton = DummyCheckBox(False)
+    workflow.force = type(
+        "Force",
+        (),
+        {"running": False, "latest_vals": None, "latest_force": 0.0},
+    )()
+
+    workflow._update_force_hold_status()
+    assert workflow.ui.forceHoldStatus == "waiting_force"
+    assert workflow.ui.forceHoldStatusLabel._text == "force_hold.status_start_force"
+
+    workflow.force.running = True
+    workflow.force.latest_vals = [2.5, 2.5, 2.5, 2.5]
+    workflow._update_force_hold_status()
+    assert workflow.ui.forceHoldStatus == "waiting_confirmation"
+    assert workflow.ui.forceHoldStatusLabel._text == "force_hold.status_confirm"
+
+    workflow.ui.scanLoadConfirmButton.checked = True
+    workflow._confirmed_force_n = 10.0
+    workflow.force.latest_force = 10.0
+    workflow._update_force_hold_status()
+    assert workflow.ui.forceHoldStatus == "ready"
+    assert workflow.ui.forceHoldStatusLabel._text.startswith(
+        "force_hold.status_ready"
+    )
+
+
 def test_force_hold_tick_applies_z_positive_and_records_event():
     workflow = object.__new__(LedScanWorkflow)
     workflow.translator = _translator

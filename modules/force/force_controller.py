@@ -159,13 +159,27 @@ class ForceController:
             widget = getattr(self.ui, widget_name, None)
             if widget is not None and hasattr(widget, "setEnabled"):
                 widget.setEnabled(analog_enabled)
+        start_button = getattr(self.ui, "forceStartButton", None)
+        if start_button is not None and hasattr(start_button, "setToolTip"):
+            if self._selected_mode() == "serial":
+                start_button.setToolTip(
+                    self._t(
+                        "force.serial_selected",
+                        port=getattr(self.config, "force_serial_port", "COM15"),
+                        baud=int(
+                            getattr(self.config, "force_serial_baudrate", 9600)
+                        ),
+                    )
+                )
+            else:
+                start_button.setToolTip("")
         self._apply_force_device_capabilities()
 
     def _on_force_device_changed(self, *_args):
         self._apply_force_device_capabilities()
 
     def retranslate_ui(self):
-        self._apply_force_device_capabilities()
+        self.update_mode_controls()
 
     def active_configuration_metadata(self):
         return self.active_config.metadata() if self.active_config is not None else {}
@@ -183,6 +197,7 @@ class ForceController:
 
     def apply_config(self):
         self.plot.apply_max_display_points(self.config.max_display_points)
+        self.update_mode_controls()
 
     def toggle(self):
         if self.thread and self.thread.isRunning():
@@ -208,17 +223,25 @@ class ForceController:
         self._start_serial()
 
     def _start_serial(self):
+        serial_port = str(getattr(self.config, "force_serial_port", "COM15")).strip()
+        baud_rate = int(getattr(self.config, "force_serial_baudrate", 9600))
+        if not serial_port:
+            detail = self._t("force.serial_missing")
+            log(f"[Force] {detail}", "warning")
+            if self.runtime is not None:
+                self.runtime.set("force", RuntimeStatus.WARNING, detail)
+            return
         self.active_mode = "serial"
         self.active_config = ForceAcquisitionConfig(
             mode="serial",
-            serial_port="COM15",
-            baud_rate=9600,
+            serial_port=serial_port,
+            baud_rate=baud_rate,
         )
         self._set_config_locked(True)
         if self.runtime is not None:
             self.runtime.set("force", RuntimeStatus.CONNECTING)
         try:
-            self.thread = ForceThread(port="COM15", baudrate=9600)
+            self.thread = ForceThread(port=serial_port, baudrate=baud_rate)
             self.thread.data_ready.connect(self.on_data)
             self.thread.started_ok.connect(self.on_started)
             self.thread.start()
@@ -609,9 +632,16 @@ class ForceController:
             return
 
         if self.translator is not None:
-            self.ui.totalForceLabel.setText(self.translator("force.total", value=latest_force))
+            self.ui.totalForceLabel.setText(
+                self.translator(
+                    "force.total",
+                    value=self._format_force_value(latest_force),
+                )
+            )
         else:
-            self.ui.totalForceLabel.setText(f"Total: {latest_force:.2f} N")
+            self.ui.totalForceLabel.setText(
+                f"Total: {self._format_force_value(latest_force)} N"
+            )
         if latest_voltage_vals is not None and hasattr(
             self.ui.totalForceLabel,
             "setToolTip",
@@ -636,9 +666,19 @@ class ForceController:
             label = getattr(self.ui, f"Force{i}_Label", None)
             if label is not None:
                 if self.translator is not None:
-                    label.setText(self.translator("force.point", index=i, value=val))
+                    label.setText(
+                        self.translator(
+                            "force.point",
+                            index=i,
+                            value=self._format_force_value(val),
+                        )
+                    )
                 else:
-                    label.setText(f"P{i}: {val:.2f} {channel_unit}")
+                    label.setText(
+                        f"P{i}: {self._format_force_value(val)} {channel_unit}"
+                    )
+                if hasattr(label, "setToolTip"):
+                    label.setToolTip(f"P{i}: {float(val):+.6f} {channel_unit}")
 
         if self.active_mode == "analog":
             self._flush_analog_plot(pending_rows)
@@ -655,6 +695,21 @@ class ForceController:
             times,
             np.sum(force_rows, axis=1),
         )
+
+    @staticmethod
+    def _format_force_value(value):
+        value = float(value)
+        magnitude = abs(value)
+        if magnitude < 0.0005:
+            value = 0.0
+            magnitude = 0.0
+        if magnitude >= 100000 or (0 < magnitude < 0.001):
+            return f"{value:.3e}"
+        if magnitude >= 1000:
+            return f"{value:.1f}"
+        if magnitude >= 100:
+            return f"{value:.2f}"
+        return f"{value:.3f}"
 
     def _selected_mode(self):
         widget = getattr(self.ui, "forceModeComboBox", None)
@@ -745,6 +800,12 @@ class ForceController:
                 return "Limit for {channels} selected channel(s): {rate} Hz".format(
                     **values
                 )
+            if key == "force.serial_selected":
+                return "Serial source: {port} at {baud} baud (change in Settings)".format(
+                    **values
+                )
+            if key == "force.serial_missing":
+                return "Select a force-sensor serial port in Settings"
             return key.format(**values) if values else key
         return self.translator(key, **values)
 

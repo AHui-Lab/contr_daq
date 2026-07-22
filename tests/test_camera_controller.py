@@ -110,7 +110,7 @@ class DummyButton(DummyWidget):
 
 
 class DummyLayout:
-    def __init__(self, parent):
+    def __init__(self, parent=None):
         self.parent = parent
 
     def setContentsMargins(self, *args):
@@ -119,7 +119,10 @@ class DummyLayout:
     def setSpacing(self, value):
         pass
 
-    def addWidget(self, widget):
+    def addWidget(self, widget, stretch=0):
+        pass
+
+    def addLayout(self, layout):
         pass
 
 
@@ -148,6 +151,7 @@ qtgui = types.ModuleType("PySide6.QtGui")
 qtgui.QPixmap = DummyPixmap
 qtwidgets = types.ModuleType("PySide6.QtWidgets")
 qtwidgets.QComboBox = DummyComboBox
+qtwidgets.QHBoxLayout = DummyLayout
 qtwidgets.QLabel = DummyLabel
 qtwidgets.QPushButton = DummyButton
 qtwidgets.QVBoxLayout = DummyLayout
@@ -164,6 +168,8 @@ class DummyCameraThread:
     def __init__(self, camera_index):
         self.camera_index = camera_index
         self.frame_ready = DummySignal()
+        self.opened = DummySignal()
+        self.error = DummySignal()
         self.finished = DummySignal()
         self.started = False
         self.stop_called = False
@@ -179,8 +185,25 @@ class DummyCameraThread:
         self.request_stop_called = True
 
 
+class DummyCameraDiscoveryThread:
+    def __init__(self, max_devices):
+        self.max_devices = max_devices
+        self.devices_ready = DummySignal()
+        self.error = DummySignal()
+        self.finished = DummySignal()
+        self.started = False
+        self.request_stop_called = False
+
+    def start(self):
+        self.started = True
+
+    def request_stop(self):
+        self.request_stop_called = True
+
+
 camera_thread_module = types.ModuleType("modules.camera.camera_thread")
 camera_thread_module.CameraThread = DummyCameraThread
+camera_thread_module.CameraDiscoveryThread = DummyCameraDiscoveryThread
 sys.modules["modules.camera.camera_thread"] = camera_thread_module
 
 from modules.camera.camera_controller import CameraController
@@ -228,3 +251,44 @@ def test_closing_camera_requests_stop_without_blocking_wait():
 
     assert controller.thread is None
     assert controller.btn_toggle.enabled is True
+
+
+def test_camera_open_failure_returns_controller_to_retryable_state():
+    controller = CameraController(object())
+
+    controller.toggle_camera()
+    thread = controller.thread
+    thread.error.emit("open failed")
+    thread.finished.emit()
+
+    assert controller.thread is None
+    assert controller.btn_toggle.enabled is True
+    assert "open failed" in controller.video_label.text
+
+    controller.toggle_camera()
+
+    assert controller.thread is not None
+    assert controller.thread is not thread
+
+
+def test_camera_refresh_runs_through_background_discovery_thread():
+    controller = CameraController(object())
+
+    controller.scan_cameras()
+    discovery = controller.discovery_thread
+
+    assert discovery.started is True
+    assert controller.btn_refresh.enabled is False
+
+    discovery.devices_ready.emit([2, 5])
+    discovery.finished.emit()
+
+    assert [item[1] for item in controller.camera_combo.items] == [2, 5]
+    assert controller.discovery_thread is None
+    assert controller.btn_refresh.enabled is True
+
+
+def test_configured_camera_index_remains_selectable_before_discovery():
+    controller = CameraController(object(), default_index=12)
+
+    assert controller.camera_combo.currentData() == 12

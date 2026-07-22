@@ -30,6 +30,10 @@ def test_config_can_be_saved_and_loaded(tmp_path):
         max_display_points=1200,
         operator_name="Operator A",
         data_save_dir="D:/experiment-data",
+        force_serial_port="COM7",
+        force_serial_baudrate=19200,
+        camera_1_index=2,
+        camera_2_index=5,
     )
     config.sample_resistances_ohm[0] = 220.0
     config.amplify_gains[0] = 8.0
@@ -41,6 +45,10 @@ def test_config_can_be_saved_and_loaded(tmp_path):
     assert loaded.max_display_points == 1200
     assert loaded.operator_name == "Operator A"
     assert loaded.data_save_dir == "D:/experiment-data"
+    assert loaded.force_serial_port == "COM7"
+    assert loaded.force_serial_baudrate == 19200
+    assert loaded.camera_1_index == 2
+    assert loaded.camera_2_index == 5
     assert loaded.sample_resistances_ohm[0] == pytest.approx(220.0)
     assert loaded.amplify_gains[0] == pytest.approx(8.0)
 

@@ -64,8 +64,8 @@ class ForceHoldController:
     def arm(self, config: ForceHoldConfig, target_force_n: float, now: float) -> None:
         config.validate()
         target = float(target_force_n)
-        if not isfinite(target) or target <= config.tolerance_n:
-            raise ValueError("Force-hold target must be positive and above the tolerance")
+        if not isfinite(target) or target <= 0:
+            raise ValueError("Force-hold target must be positive")
 
         with self._lock:
             self.config = config

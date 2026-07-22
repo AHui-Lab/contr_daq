@@ -329,6 +329,18 @@ QGroupBox#groupBox_6 QPushButton#Emergency_Stop {
     padding: 2px 8px;
 }
 
+QGroupBox#groupBox_4 QComboBox,
+QGroupBox#groupBox_4 QSpinBox,
+QGroupBox#groupBox_4 QDoubleSpinBox {
+    min-height: 18px;
+    padding: 2px 6px;
+}
+
+QGroupBox#groupBox_4 QPushButton {
+    min-height: 20px;
+    padding: 3px 8px;
+}
+
 QLineEdit:focus,
 QComboBox:focus,
 QSpinBox:focus,

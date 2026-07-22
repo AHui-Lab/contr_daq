@@ -73,6 +73,7 @@ TRANSLATIONS = {
         "button.camera.open": "Open Camera",
         "button.camera.close": "Close Camera",
         "button.camera.closing": "Closing Camera...",
+        "button.camera.refresh": "Refresh",
         "button.scan.start": "Start Scan",
         "button.scan.cancel": "Cancel Scan",
         "button.scan.preparing": "Preparing...",
@@ -96,17 +97,40 @@ TRANSLATIONS = {
         "label.led_count": "LED Count",
         "label.led_size": "LED Size (mm)",
         "label.scan_distance": "Scan Distance (mm)",
-        "force_hold.enable": "Force Hold (Experimental)",
+        "force_hold.enable": "Force Hold During Scan",
         "force_hold.tolerance": "Force Tolerance",
         "force_hold.z_step": "Z Correction Step",
         "force_hold.tooltip": (
-            "Optional test controller. Uses the confirmed total force as the target. "
-            "Z+ is assumed to reduce the gap and increase force."
+            "Enables force control for the next scan; it does not move Z while idle. "
+            "Uses the force captured by Confirm Load as the target. Z+ is assumed "
+            "to reduce the gap and increase force."
+        ),
+        "force_hold.workflow": (
+            "1. Start force acquisition and zero with no load. 2. Align and apply the "
+            "acceptable load. 3. Press Confirm Load. 4. Enable Force Hold and review "
+            "the target/current values. 5. Start Scan; closed-loop Z correction begins "
+            "only while the scan is moving."
+        ),
+        "force_hold.status_off": "Off · Z remains fixed during the scan",
+        "force_hold.status_start_force": "Enabled for next scan · start Force Acquisition",
+        "force_hold.status_wait_force": "Enabled · waiting for a valid force sample",
+        "force_hold.status_confirm": "Enabled · press Confirm Load in Step 2",
+        "force_hold.status_ready": (
+            "Ready for next scan · target {target:.2f} N · now {current:.2f} N"
+        ),
+        "force_hold.status_active": (
+            "Active · target {target:.2f} N · {corrections} corrections · Z {offset:+.4f} mm"
         ),
         "label.repeat": "Repeat",
         "label.start_voltage": "Start Voltage",
         "label.step_voltage": "Voltage Step",
         "label.stop_voltage": "Stop Voltage",
+        "label.iv_mode": "Sweep Mode",
+        "iv.mode_tooltip": "Select the IV sweep direction",
+        "iv.repeat_prefix": "Repeat",
+        "iv.start_prefix": "Start",
+        "iv.stop_prefix": "Stop",
+        "iv.step_prefix": "Step",
         "device.simulated": "Simulated NI device",
         "device.connected": "NI device",
         "device.capabilities": "{name} · {product}\n{status} · {ai} AI / {ao} AO\nAI aggregate rate: {rate} S/s\nAO ranges: {ao_range}",
@@ -123,6 +147,10 @@ TRANSLATIONS = {
         "mode.iv.forward_backward": "Forward-Backward",
         "mode.force.serial": "Serial Modbus",
         "mode.force.analog": "Analog Voltage",
+        "force.serial_selected": (
+            "Serial source: {port} at {baud} baud · change it in Settings"
+        ),
+        "force.serial_missing": "Select a force-sensor serial port in Settings",
         "mode.motion.forward": "Forward (+)",
         "mode.motion.reverse": "Reverse (-)",
         "scan.ready": "{distance:.3f} mm · {samples:.1f} samples/LED",
@@ -154,7 +182,7 @@ TRANSLATIONS = {
         "scan.not_ready_short": "Not ready · review details",
         "scan.invalid_plan": "Review the scan parameters: {detail}",
         "scan.force_hold_z_axis": "Force Hold cannot be used while Z is the scan axis",
-        "scan.force_hold_target": "Confirm a positive load above the selected force tolerance",
+        "scan.force_hold_target": "Confirm a positive load for the Force Hold target",
         "scan.force_hold_signal": "A fresh force value is required for Force Hold",
         "scan.force_hold_initial_error": (
             "Current force differs too much from the confirmed Force Hold target"
@@ -203,17 +231,46 @@ TRANSLATIONS = {
         "results.samples": "Samples/LED (min–max)",
         "results.constant": "Constant-speed data",
         "results.duration": "Capture duration",
+        "results.force_hold": "Force Hold",
         "results.quality": "Quality assessment",
         "results.quality_ok": "All configured quality checks passed.",
+        "results.interpretation": "How to read this result",
+        "results.interpretation_completed": (
+            "Accepted means acquisition completed and no configured quality warning was "
+            "found. Review the saved curves before using the run for analysis."
+        ),
+        "results.interpretation_warning": (
+            "The data was saved, but at least one motion or spatial-quality check needs "
+            "review. Read Quality assessment before accepting this run."
+        ),
+        "results.interpretation_error": (
+            "The scan stopped early or a required data stream is missing. Files may contain "
+            "useful partial data, but this run should not be treated as complete."
+        ),
+        "results.metric_help": (
+            "LED coverage = populated LED bins/configured LEDs. Samples/LED = lowest and "
+            "highest sample counts per LED. Constant-speed data = fraction collected after "
+            "acceleration and before deceleration."
+        ),
+        "results.files": "Saved data files",
+        "results.files_none": "No files were saved.",
+        "results.force_hold_off": "Off",
+        "results.force_hold_on": (
+            "{corrections} corrections · target {target:.2f} N · Z {offset:+.4f} mm"
+        ),
         "results.folder": "Output folder",
         "results.open_folder": "Open Folder",
         "results.copy_paths": "Copy File Paths",
         "results.unspecified": "Not specified",
-        "force.total": "Total: {value:.2f} N",
-        "force.point": "P{index}: {value:.2f} N",
+        "force.total": "Total: {value} N",
+        "force.point": "P{index}: {value} N",
         "camera.idle": "Camera idle",
         "camera.none": "No camera detected",
         "camera.not_selected": "No camera selected",
+        "camera.scanning": "Scanning for cameras in the background...",
+        "camera.opened": "Camera connected · waiting for frames",
+        "camera.discovery_failed": "Camera refresh failed: {detail}",
+        "camera.stream_failed": "Camera unavailable: {detail} · reconnect, refresh, and open again",
         "status.ready_message": "Workbench ready",
         "status.daq": "DAQ",
         "status.ao": "AO",
@@ -234,6 +291,9 @@ TRANSLATIONS = {
         "state.off": "Off",
         "state.both": "Both",
         "settings.title": "Preferences",
+        "settings.general_tab": "General",
+        "settings.hardware_tab": "Hardware",
+        "settings.channels_tab": "Channels",
         "settings.interface_group": "Interface",
         "settings.language": "Language",
         "settings.display_group": "Display and Acquisition",
@@ -245,6 +305,16 @@ TRANSLATIONS = {
         "settings.output_dir": "Output folder",
         "settings.browse": "Browse...",
         "settings.select_output_dir": "Select Experiment Output Folder",
+        "settings.hardware_group": "Hardware Devices",
+        "settings.force_serial_port": "Force sensor serial port",
+        "settings.force_serial_baud": "Force sensor baud rate",
+        "settings.camera_1": "Camera 1 device",
+        "settings.camera_2": "Camera 2 device",
+        "settings.refresh_devices": "Refresh Serial and Cameras",
+        "settings.devices_ready": "Select devices, then Apply.",
+        "settings.scanning_cameras": "Scanning cameras in the background...",
+        "settings.devices_found": "Detected {count} camera device(s).",
+        "settings.camera_scan_failed": "Camera scan failed: {detail}",
         "settings.channels_group": "Channel Current Conversion",
         "settings.channel": "Channel",
         "settings.resistance": "Shunt resistance (ohm)",
@@ -314,6 +384,7 @@ TRANSLATIONS = {
         "button.camera.open": "打开相机",
         "button.camera.close": "关闭相机",
         "button.camera.closing": "正在关闭相机...",
+        "button.camera.refresh": "刷新",
         "button.scan.start": "开始扫描",
         "button.scan.cancel": "取消扫描",
         "button.scan.preparing": "正在准备...",
@@ -337,17 +408,38 @@ TRANSLATIONS = {
         "label.led_count": "LED 数量",
         "label.led_size": "单颗 LED 尺寸 (mm)",
         "label.scan_distance": "扫描距离 (mm)",
-        "force_hold.enable": "力保持（实验）",
+        "force_hold.enable": "扫描时保持力",
         "force_hold.tolerance": "力容差",
         "force_hold.z_step": "Z 轴修正步长",
         "force_hold.tooltip": (
-            "可选的测试闭环，以确认负载时的合力为目标。"
-            "默认 Z+ 会减小间隙并增大压力。"
+            "为下一次扫描启用力闭环；空闲时不会移动 Z 轴。"
+            "以“确认负载”时记录的合力为目标，默认 Z+ 会减小间隙并增大压力。"
+        ),
+        "force_hold.workflow": (
+            "1. 启动力采集，并在无负载时清零。2. 人工对准并施加可接受压力。"
+            "3. 点击“确认负载”。4. 勾选力保持并核对目标值和当前值。"
+            "5. 点击开始扫描；只有扫描运动期间才会执行 Z 轴闭环修正。"
+        ),
+        "force_hold.status_off": "已关闭 · 扫描期间 Z 轴保持不变",
+        "force_hold.status_start_force": "已为下一次扫描启用 · 请先启动力采集",
+        "force_hold.status_wait_force": "已启用 · 正在等待有效力数据",
+        "force_hold.status_confirm": "已启用 · 请在步骤 2 点击“确认负载”",
+        "force_hold.status_ready": (
+            "下一次扫描已就绪 · 目标 {target:.2f} N · 当前 {current:.2f} N"
+        ),
+        "force_hold.status_active": (
+            "闭环工作中 · 目标 {target:.2f} N · 已修正 {corrections} 次 · Z {offset:+.4f} mm"
         ),
         "label.repeat": "重复次数",
         "label.start_voltage": "起始电压",
         "label.step_voltage": "电压步进",
         "label.stop_voltage": "终止电压",
+        "label.iv_mode": "扫描模式",
+        "iv.mode_tooltip": "选择 IV 扫描方向",
+        "iv.repeat_prefix": "重复",
+        "iv.start_prefix": "起始",
+        "iv.stop_prefix": "终止",
+        "iv.step_prefix": "步进",
         "device.simulated": "NI 模拟设备",
         "device.connected": "NI 设备",
         "device.capabilities": "{name} · {product}\n{status} · {ai} 路 AI / {ao} 路 AO\nAI 总转换率：{rate} S/s\nAO 量程：{ao_range}",
@@ -364,6 +456,8 @@ TRANSLATIONS = {
         "mode.iv.forward_backward": "正向-反向",
         "mode.force.serial": "串口 Modbus",
         "mode.force.analog": "模拟电压",
+        "force.serial_selected": "串口来源：{port}，{baud} 波特 · 可在设置中修改",
+        "force.serial_missing": "请在设置中选择力传感器串口",
         "mode.motion.forward": "正向 (+)",
         "mode.motion.reverse": "反向 (-)",
         "scan.ready": "{distance:.3f} mm · 每颗 LED {samples:.1f} 个采样点",
@@ -395,7 +489,7 @@ TRANSLATIONS = {
         "scan.not_ready_short": "尚未就绪 · 请查看详情",
         "scan.invalid_plan": "请检查扫描参数：{detail}",
         "scan.force_hold_z_axis": "Z 轴作为扫描轴时不能启用力保持",
-        "scan.force_hold_target": "请确认大于力容差的正向负载",
+        "scan.force_hold_target": "请确认一个正向负载作为力保持目标",
         "scan.force_hold_signal": "力保持需要新鲜的力数据",
         "scan.force_hold_initial_error": "当前力与已确认目标相差过大",
         "scan.force_hold_running": (
@@ -442,17 +536,45 @@ TRANSLATIONS = {
         "results.samples": "每颗 LED 采样数（最少–最多）",
         "results.constant": "恒速数据占比",
         "results.duration": "采集时长",
+        "results.force_hold": "力保持",
         "results.quality": "质量评估",
         "results.quality_ok": "所有已配置的数据质量检查均已通过。",
+        "results.interpretation": "如何理解本次结果",
+        "results.interpretation_completed": (
+            "“扫描验收通过”表示采集已完成，且已配置的质量检查没有发现警告。"
+            "正式分析前仍建议查看保存的曲线。"
+        ),
+        "results.interpretation_warning": (
+            "数据已经保存，但运动或空间质量检查至少有一项需要人工复核。"
+            "接受本次数据前请先阅读“质量评估”。"
+        ),
+        "results.interpretation_error": (
+            "扫描提前停止或缺少必要数据流。保存文件可能包含可用的部分数据，"
+            "但本次运行不能视为完整数据。"
+        ),
+        "results.metric_help": (
+            "LED 覆盖 = 有数据的 LED 分区数/设定 LED 数；每颗 LED 采样数表示最少和最多样本；"
+            "恒速数据占比表示去除加速、减速过程后采集的数据比例。"
+        ),
+        "results.files": "已保存的数据文件",
+        "results.files_none": "没有保存文件。",
+        "results.force_hold_off": "未启用",
+        "results.force_hold_on": (
+            "修正 {corrections} 次 · 目标 {target:.2f} N · Z {offset:+.4f} mm"
+        ),
         "results.folder": "输出文件夹",
         "results.open_folder": "打开文件夹",
         "results.copy_paths": "复制文件路径",
         "results.unspecified": "未填写",
-        "force.total": "合力: {value:.2f} N",
-        "force.point": "P{index}: {value:.2f} N",
+        "force.total": "合力: {value} N",
+        "force.point": "P{index}: {value} N",
         "camera.idle": "相机空闲",
         "camera.none": "未检测到相机",
         "camera.not_selected": "未选择相机",
+        "camera.scanning": "正在后台扫描相机设备...",
+        "camera.opened": "相机已连接，正在等待画面",
+        "camera.discovery_failed": "相机刷新失败：{detail}",
+        "camera.stream_failed": "相机不可用：{detail} · 重新连接后请刷新并再次打开",
         "status.ready_message": "工作台已就绪",
         "status.daq": "采集",
         "status.ao": "模拟输出",
@@ -473,6 +595,9 @@ TRANSLATIONS = {
         "state.off": "关闭",
         "state.both": "两台",
         "settings.title": "首选项",
+        "settings.general_tab": "常规",
+        "settings.hardware_tab": "硬件",
+        "settings.channels_tab": "通道",
         "settings.interface_group": "界面",
         "settings.language": "语言",
         "settings.display_group": "显示与采集",
@@ -484,6 +609,16 @@ TRANSLATIONS = {
         "settings.output_dir": "输出文件夹",
         "settings.browse": "浏览...",
         "settings.select_output_dir": "选择实验数据输出文件夹",
+        "settings.hardware_group": "硬件设备",
+        "settings.force_serial_port": "力传感器串口",
+        "settings.force_serial_baud": "力传感器波特率",
+        "settings.camera_1": "相机 1 设备",
+        "settings.camera_2": "相机 2 设备",
+        "settings.refresh_devices": "刷新串口与相机",
+        "settings.devices_ready": "选择设备后点击应用。",
+        "settings.scanning_cameras": "正在后台扫描相机设备...",
+        "settings.devices_found": "检测到 {count} 个相机设备。",
+        "settings.camera_scan_failed": "相机扫描失败：{detail}",
         "settings.channels_group": "通道电流换算",
         "settings.channel": "通道",
         "settings.resistance": "采样电阻 (ohm)",

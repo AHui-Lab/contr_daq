@@ -16,6 +16,10 @@ class AppConfig:
     daq_chunk_interval_s: float = 0.05
     min_daq_chunk_size: int = 100
     max_daq_chunk_size: int = 10000
+    force_serial_port: str = "COM15"
+    force_serial_baudrate: int = 9600
+    camera_1_index: int = 0
+    camera_2_index: int = 1
     sample_resistances_ohm: list[float] = field(default_factory=list)
     amplify_gains: list[float] = field(default_factory=list)
 
@@ -25,6 +29,12 @@ class AppConfig:
         self.ui_language = normalize_language(self.ui_language)
         self.operator_name = str(self.operator_name or "").strip()
         self.data_save_dir = str(self.data_save_dir or "data").strip() or "data"
+        self.force_serial_port = (
+            str(self.force_serial_port or "COM15").strip() or "COM15"
+        )
+        self.force_serial_baudrate = max(int(self.force_serial_baudrate), 1)
+        self.camera_1_index = max(int(self.camera_1_index), 0)
+        self.camera_2_index = max(int(self.camera_2_index), 0)
         if not self.sample_resistances_ohm:
             self.sample_resistances_ohm = [
                 self.default_sample_resistance_ohm

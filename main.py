@@ -59,14 +59,14 @@ class MainWindow:
 
         self.camera_controller_1 = CameraController(
             self.ui.Camera1,
-            default_index=0,
+            default_index=self.config.camera_1_index,
             translator=self.translator,
             runtime=self.runtime,
             subsystem="camera_1",
         )
         self.camera_controller_2 = CameraController(
             self.ui.Camera2,
-            default_index=1,
+            default_index=self.config.camera_2_index,
             translator=self.translator,
             runtime=self.runtime,
             subsystem="camera_2",
@@ -170,6 +170,8 @@ class MainWindow:
         self.led_manager.apply_config()
         self.plot.apply_config()
         self.force_controller.apply_config()
+        self.camera_controller_1.set_preferred_index(self.config.camera_1_index)
+        self.camera_controller_2.set_preferred_index(self.config.camera_2_index)
         if language_changed:
             self._retranslate_ui()
 
@@ -270,10 +272,14 @@ class MainWindow:
         if scan_workflow is not None:
             scan_workflow.wait_for_save()
 
+        settings_dialog = getattr(self, "_settings_dialog", None)
+        if settings_dialog is not None:
+            settings_dialog.shutdown()
+
         for controller_name in ("camera_controller_1", "camera_controller_2"):
             controller = getattr(self, controller_name, None)
-            if controller and controller.thread:
-                controller.thread.stop()
+            if controller:
+                controller.shutdown()
 
         if hasattr(self, "daq_controller") and self.daq_controller.thread:
             self.daq_controller.stop()

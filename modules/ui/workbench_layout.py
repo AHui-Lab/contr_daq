@@ -1,5 +1,7 @@
 """Stage-two workbench shell for the operator-facing LED scan UI."""
 
+from pathlib import Path
+
 from PySide6.QtCore import Qt, QUrl
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
@@ -10,6 +12,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QPushButton,
+    QScrollArea,
     QSizePolicy,
     QSplitter,
     QVBoxLayout,
@@ -24,7 +27,7 @@ STEP_PENDING_STYLE = """
     border: 1px solid #344958;
     border-radius: 4px;
     color: #9fb0bd;
-    padding: 5px 7px;
+    padding: 2px 5px;
     font-weight: 600;
 """
 
@@ -33,7 +36,7 @@ STEP_ACTIVE_STYLE = """
     border: 1px solid #4ca9d4;
     border-radius: 4px;
     color: #a9e5ff;
-    padding: 5px 7px;
+    padding: 2px 5px;
     font-weight: 700;
 """
 
@@ -42,7 +45,7 @@ STEP_COMPLETE_STYLE = """
     border: 1px solid #2f8652;
     border-radius: 4px;
     color: #8ff0b5;
-    padding: 5px 7px;
+    padding: 2px 5px;
     font-weight: 700;
 """
 
@@ -51,7 +54,7 @@ STEP_WARNING_STYLE = """
     border: 1px solid #b97822;
     border-radius: 4px;
     color: #ffd28a;
-    padding: 5px 7px;
+    padding: 2px 5px;
     font-weight: 700;
 """
 
@@ -60,7 +63,7 @@ STEP_ERROR_STYLE = """
     border: 1px solid #c94b55;
     border-radius: 4px;
     color: #ffabb2;
-    padding: 5px 7px;
+    padding: 2px 5px;
     font-weight: 700;
 """
 
@@ -230,12 +233,12 @@ class WorkbenchLayout:
         parent = self.ui.groupBox_6.parentWidget()
         self.readiness_card = QFrame(parent)
         self.readiness_card.setObjectName("scanReadinessCard")
-        self.readiness_card.setMinimumHeight(126)
-        self.readiness_card.setMaximumHeight(146)
+        self.readiness_card.setMinimumHeight(108)
+        self.readiness_card.setMaximumHeight(118)
 
         layout = QVBoxLayout(self.readiness_card)
-        layout.setContentsMargins(10, 6, 10, 6)
-        layout.setSpacing(4)
+        layout.setContentsMargins(10, 4, 10, 4)
+        layout.setSpacing(3)
         self.readiness_title = QLabel(self.readiness_card)
         self.readiness_title.setObjectName("readinessTitle")
         self.readiness_title.setMinimumHeight(14)
@@ -256,7 +259,8 @@ class WorkbenchLayout:
                 label = QLabel(self.readiness_card)
             if hasattr(label, "setAlignment"):
                 label.setAlignment(Qt.AlignCenter)
-            label.setMinimumHeight(28)
+            label.setMinimumHeight(22)
+            label.setMaximumHeight(24)
             label.setStyleSheet(STEP_PENDING_STYLE)
             step_layout.addWidget(label, index // 2, index % 2)
             self.step_labels.append(label)
@@ -264,17 +268,47 @@ class WorkbenchLayout:
 
         self.readiness_summary = QLabel(self.readiness_card)
         self.readiness_summary.setObjectName("readinessSummary")
-        self.readiness_summary.setMinimumHeight(28)
+        self.readiness_summary.setMinimumHeight(22)
+        self.readiness_summary.setMaximumHeight(28)
         self.readiness_summary.setWordWrap(True)
         layout.addWidget(self.readiness_summary)
 
         motion_layout = self.ui.gridLayout_4
         motion_layout.removeWidget(self.ui.groupBox_5)
         motion_layout.removeWidget(self.ui.groupBox_6)
+
+        scan_form_layout = self.ui.gridLayout_11
+        scan_form_layout.removeWidget(self.ui.Forward_circle)
+        scan_form_layout.removeWidget(self.ui.Emergency_Stop)
+        self.ui.groupBox_6.setMinimumHeight(300)
+        self.ui.groupBox_6.setMaximumHeight(302)
+
+        self.scan_scroll = QScrollArea(parent)
+        self.scan_scroll.setObjectName("scanConfigScroll")
+        self.scan_scroll.setWidgetResizable(True)
+        self.scan_scroll.setFrameShape(QFrame.NoFrame)
+        self.scan_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.scan_scroll_content = QWidget(self.scan_scroll)
+        scroll_layout = QVBoxLayout(self.scan_scroll_content)
+        scroll_layout.setContentsMargins(0, 0, 0, 0)
+        scroll_layout.setSpacing(0)
+        scroll_layout.addWidget(self.ui.groupBox_6)
+        self.scan_scroll.setWidget(self.scan_scroll_content)
+
+        self.scan_action_bar = QFrame(parent)
+        self.scan_action_bar.setObjectName("scanActionBar")
+        action_layout = QVBoxLayout(self.scan_action_bar)
+        action_layout.setContentsMargins(0, 0, 0, 0)
+        action_layout.setSpacing(4)
+        action_layout.addWidget(self.ui.Forward_circle)
+        action_layout.addWidget(self.ui.Emergency_Stop)
+
         motion_layout.addWidget(self.readiness_card, 0, 0)
-        motion_layout.addWidget(self.ui.groupBox_6, 1, 0)
+        motion_layout.addWidget(self.scan_scroll, 1, 0)
+        motion_layout.addWidget(self.scan_action_bar, 2, 0)
         motion_layout.setRowStretch(0, 0)
         motion_layout.setRowStretch(1, 1)
+        motion_layout.setRowStretch(2, 0)
 
         self.manual_page = QWidget(self.ui.tabWidget_3)
         self.manual_page.setObjectName("manualMotionPage")
@@ -285,19 +319,32 @@ class WorkbenchLayout:
         self.ui.tabWidget_3.addTab(self.manual_page, "")
         self.ui.tabWidget_3.setCurrentIndex(0)
         self.ui.scanReadinessCard = self.readiness_card
+        self.ui.scanConfigScroll = self.scan_scroll
+        self.ui.scanActionBar = self.scan_action_bar
 
     def _build_results_page(self) -> None:
         self.results_page = QWidget(self.ui.tabWidget_3)
         self.results_page.setObjectName("scanResultsPage")
-        layout = QVBoxLayout(self.results_page)
-        layout.setContentsMargins(10, 10, 10, 10)
-        layout.setSpacing(8)
+        root_layout = QVBoxLayout(self.results_page)
+        root_layout.setContentsMargins(10, 10, 10, 10)
+        root_layout.setSpacing(8)
 
         self.result_status = QLabel(self.results_page)
         self.result_status.setObjectName("scanResultStatus")
         self.result_status.setAlignment(Qt.AlignCenter)
         self.result_status.setMinimumHeight(30)
-        layout.addWidget(self.result_status)
+        root_layout.addWidget(self.result_status)
+
+        self.result_scroll = QScrollArea(self.results_page)
+        self.result_scroll.setObjectName("scanResultsScroll")
+        self.result_scroll.setWidgetResizable(True)
+        self.result_scroll.setFrameShape(QFrame.NoFrame)
+        self.result_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.result_scroll_content = QWidget(self.result_scroll)
+        self.result_scroll_content.setMinimumHeight(540)
+        layout = QVBoxLayout(self.result_scroll_content)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(8)
 
         self.result_metrics = QFrame(self.results_page)
         self.result_metrics.setObjectName("scanResultsMetrics")
@@ -308,12 +355,21 @@ class WorkbenchLayout:
         self.result_metric_titles = {}
         self.result_metric_values = {}
         for row, key in enumerate(
-            ("run_id", "operator", "coverage", "samples", "constant", "duration")
+            (
+                "run_id",
+                "operator",
+                "coverage",
+                "samples",
+                "constant",
+                "duration",
+                "force_hold",
+            )
         ):
             title = QLabel(self.result_metrics)
             title.setObjectName("scanResultMetricTitle")
             value = QLabel(self.result_metrics)
             value.setObjectName("scanResultMetricValue")
+            value.setWordWrap(True)
             value.setTextInteractionFlags(Qt.TextSelectableByMouse)
             metrics_layout.addWidget(title, row, 0)
             metrics_layout.addWidget(value, row, 1)
@@ -331,6 +387,26 @@ class WorkbenchLayout:
         layout.addWidget(self.result_quality_title)
         layout.addWidget(self.result_quality_value)
 
+        self.result_interpretation_title = QLabel(self.results_page)
+        self.result_interpretation_title.setObjectName("scanResultSectionTitle")
+        self.result_interpretation_value = QLabel(self.results_page)
+        self.result_interpretation_value.setObjectName("scanResultInterpretation")
+        self.result_interpretation_value.setWordWrap(True)
+        self.result_interpretation_value.setTextInteractionFlags(
+            Qt.TextSelectableByMouse
+        )
+        layout.addWidget(self.result_interpretation_title)
+        layout.addWidget(self.result_interpretation_value)
+
+        self.result_files_title = QLabel(self.results_page)
+        self.result_files_title.setObjectName("scanResultSectionTitle")
+        self.result_files_value = QLabel(self.results_page)
+        self.result_files_value.setObjectName("scanResultFiles")
+        self.result_files_value.setWordWrap(True)
+        self.result_files_value.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        layout.addWidget(self.result_files_title)
+        layout.addWidget(self.result_files_value)
+
         self.result_folder_title = QLabel(self.results_page)
         self.result_folder_title.setObjectName("scanResultSectionTitle")
         self.result_folder_value = QLabel(self.results_page)
@@ -341,6 +417,9 @@ class WorkbenchLayout:
         layout.addWidget(self.result_folder_value)
         layout.addStretch(1)
 
+        self.result_scroll.setWidget(self.result_scroll_content)
+        root_layout.addWidget(self.result_scroll, 1)
+
         button_layout = QHBoxLayout()
         self.open_result_folder_button = QPushButton(self.results_page)
         self.open_result_folder_button.setObjectName("openResultFolderButton")
@@ -350,10 +429,11 @@ class WorkbenchLayout:
         self.copy_result_paths_button.clicked.connect(self._copy_result_paths)
         button_layout.addWidget(self.open_result_folder_button)
         button_layout.addWidget(self.copy_result_paths_button)
-        layout.addLayout(button_layout)
+        root_layout.addLayout(button_layout)
 
         self.ui.tabWidget_3.insertTab(1, self.results_page, "")
         self.ui.scanResultsPage = self.results_page
+        self.ui.scanResultsScroll = self.result_scroll
         self.ui.scanLastResult = None
         self._render_result(None)
 
@@ -395,6 +475,8 @@ class WorkbenchLayout:
         for key, title in self.result_metric_titles.items():
             title.setText(t(f"results.{key}"))
         self.result_quality_title.setText(t("results.quality"))
+        self.result_interpretation_title.setText(t("results.interpretation"))
+        self.result_files_title.setText(t("results.files"))
         self.result_folder_title.setText(t("results.folder"))
         self.open_result_folder_button.setText(t("results.open_folder"))
         self.copy_result_paths_button.setText(t("results.copy_paths"))
@@ -544,6 +626,8 @@ class WorkbenchLayout:
             for value in self.result_metric_values.values():
                 value.setText("—")
             self.result_quality_value.setText(t("results.waiting"))
+            self.result_interpretation_value.setText(t("results.metric_help"))
+            self.result_files_value.setText(t("results.files_none"))
             self.result_folder_value.setText("—")
             self.open_result_folder_button.setEnabled(False)
             self.copy_result_paths_button.setEnabled(False)
@@ -584,10 +668,43 @@ class WorkbenchLayout:
         self.result_metric_values["duration"].setText(
             f"{float(getattr(result, 'capture_duration_s', 0.0)):.3f} s"
         )
+        if bool(getattr(result, "force_hold_enabled", False)):
+            force_hold_text = t(
+                "results.force_hold_on",
+                corrections=int(
+                    getattr(result, "force_hold_correction_count", 0)
+                ),
+                target=float(getattr(result, "force_hold_target_n", 0.0)),
+                offset=float(getattr(result, "force_hold_offset_mm", 0.0)),
+            )
+        else:
+            force_hold_text = t("results.force_hold_off")
+        self.result_metric_values["force_hold"].setText(force_hold_text)
         detail = str(getattr(result, "detail", "") or "")
         self.result_quality_value.setText(
             t("results.quality_ok") if detail in ("", "ok", "completed") else detail
         )
+        self.result_interpretation_value.setText(
+            "\n\n".join(
+                (
+                    t(f"results.interpretation_{outcome}"),
+                    t("results.metric_help"),
+                )
+            )
+        )
+        paths = getattr(result, "paths", {}) or {}
+        if paths:
+            file_lines = [
+                f"{name}: {Path(str(path)).name}"
+                for name, path in sorted(paths.items())
+            ]
+            self.result_files_value.setText("\n".join(file_lines))
+            self.result_files_value.setToolTip(
+                "\n".join(f"{name}: {path}" for name, path in sorted(paths.items()))
+            )
+        else:
+            self.result_files_value.setText(t("results.files_none"))
+            self.result_files_value.setToolTip("")
         self.result_folder_value.setText(str(getattr(result, "save_dir", "")))
         self.open_result_folder_button.setEnabled(bool(result.save_dir))
         self.copy_result_paths_button.setEnabled(bool(result.paths))

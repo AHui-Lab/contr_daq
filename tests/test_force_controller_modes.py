@@ -3,6 +3,8 @@ import types
 
 import pytest
 
+from modules.app_config import AppConfig
+
 
 qtcore = types.ModuleType("PySide6.QtCore")
 
@@ -189,6 +191,20 @@ def test_start_analog_force_uses_independent_force_device_settings(monkeypatch):
     }
 
 
+def test_serial_force_uses_port_and_baud_from_settings():
+    DummyThread.created = []
+    ui = DummyUi()
+    ui.forceModeComboBox.text = "Serial Modbus"
+    config = AppConfig(force_serial_port="COM7", force_serial_baudrate=19200)
+
+    controller = ForceController(ui, config=config)
+    controller.start()
+
+    assert DummyThread.created[0].kwargs == {"port": "COM7", "baudrate": 19200}
+    assert controller.active_config.serial_port == "COM7"
+    assert controller.active_config.baud_rate == 19200
+
+
 def test_manual_recording_uses_monotonic_clock_and_force_metadata(monkeypatch):
     DummyThread.created = []
     monkeypatch.setattr("modules.force.force_controller.AnalogForceThread", DummyThread)
@@ -354,3 +370,9 @@ def test_force_control_snapshot_uses_recent_median(monkeypatch):
 
     assert measured == pytest.approx(4.0)
     assert sample_time == pytest.approx(10.02)
+
+
+def test_force_value_format_keeps_units_readable_for_large_values():
+    assert ForceController._format_force_value(1.23456) == "1.235"
+    assert ForceController._format_force_value(12345.67) == "12345.7"
+    assert ForceController._format_force_value(1234567.0) == "1.235e+06"

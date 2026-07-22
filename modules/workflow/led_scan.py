@@ -110,6 +110,10 @@ class ScanResult:
     operator_name: str = ""
     missing_streams: tuple[str, ...] = ()
     detail: str = ""
+    force_hold_enabled: bool = False
+    force_hold_target_n: float = 0.0
+    force_hold_correction_count: int = 0
+    force_hold_offset_mm: float = 0.0
 
 
 class LedScanWorkflow:
@@ -386,6 +390,7 @@ class LedScanWorkflow:
         tooltip_lines = [*readiness.blockers, *readiness.warnings]
         self.ui.Forward_circle.setToolTip("\n".join(tooltip_lines))
         self.ui.scanQualityLabel.setToolTip("\n".join(tooltip_lines))
+        self._update_force_hold_status()
 
         if preserve_result and self._last_result is not None:
             self._show_result(self._last_result)
@@ -479,7 +484,7 @@ class LedScanWorkflow:
             if (
                 target is None
                 or not isfinite(float(target))
-                or target <= force_hold_config.tolerance_n
+                or target <= 0
             ):
                 blockers.append(self._t("scan.force_hold_target"))
             else:
@@ -713,6 +718,53 @@ class LedScanWorkflow:
         else:
             text = self._t("scan.progress", progress=self._progress_percent)
         self._set_feedback(text, warning=False)
+        self._update_force_hold_status()
+
+    def _update_force_hold_status(self):
+        label = getattr(self.ui, "forceHoldStatusLabel", None)
+        if label is None or not hasattr(label, "setText"):
+            return
+
+        config = self._force_hold_config()
+        snapshot = self._force_hold_metadata()
+        if snapshot.get("force_hold_armed"):
+            text = self._t(
+                "force_hold.status_active",
+                target=float(snapshot.get("force_hold_target_n", 0.0)),
+                corrections=int(snapshot.get("force_hold_correction_count", 0)),
+                offset=float(snapshot.get("force_hold_accumulated_z_mm", 0.0)),
+            )
+            color = "#8ff0b5"
+            state = "active"
+        elif not config.enabled:
+            text = self._t("force_hold.status_off")
+            color = "#9CA3AF"
+            state = "off"
+        elif not getattr(self.force, "running", False):
+            text = self._t("force_hold.status_start_force")
+            color = "#ffd28a"
+            state = "waiting_force"
+        elif getattr(self.force, "latest_vals", None) is None:
+            text = self._t("force_hold.status_wait_force")
+            color = "#ffd28a"
+            state = "waiting_sample"
+        elif not self._load_confirmed() or self._confirmed_force_n is None:
+            text = self._t("force_hold.status_confirm")
+            color = "#ffd28a"
+            state = "waiting_confirmation"
+        else:
+            text = self._t(
+                "force_hold.status_ready",
+                target=float(self._confirmed_force_n),
+                current=float(getattr(self.force, "latest_force", 0.0)),
+            )
+            color = "#8ff0b5"
+            state = "ready"
+        label.setText(text)
+        label.setStyleSheet(f"color: {color};")
+        if hasattr(label, "setToolTip"):
+            label.setToolTip(self._t("force_hold.workflow"))
+        self.ui.forceHoldStatus = state
 
     def _on_force_hold_tick(self, sample_clock):
         if not self._force_hold.snapshot().get("force_hold_armed"):
@@ -1045,6 +1097,14 @@ class LedScanWorkflow:
                 if quality_warning
                 else str(detail)
             ),
+            force_hold_enabled=bool(quality.get("force_hold_enabled", False)),
+            force_hold_target_n=float(quality.get("force_hold_target_n", 0.0)),
+            force_hold_correction_count=int(
+                quality.get("force_hold_correction_count", 0)
+            ),
+            force_hold_offset_mm=float(
+                quality.get("force_hold_accumulated_z_mm", 0.0)
+            ),
         )
         self._last_result = result
         self._last_failure = None
@@ -1178,6 +1238,14 @@ class LedScanWorkflow:
                 quality["scan_quality_detail"]
                 if quality_warning
                 else str(detail)
+            ),
+            force_hold_enabled=bool(quality.get("force_hold_enabled", False)),
+            force_hold_target_n=float(quality.get("force_hold_target_n", 0.0)),
+            force_hold_correction_count=int(
+                quality.get("force_hold_correction_count", 0)
+            ),
+            force_hold_offset_mm=float(
+                quality.get("force_hold_accumulated_z_mm", 0.0)
             ),
         )
         self._last_result = result
@@ -1428,6 +1496,8 @@ class LedScanWorkflow:
                 widget.setEnabled(enabled)
         if refresh and not self.running:
             self.update_preview()
+        else:
+            self._update_force_hold_status()
 
     def _set_controls_locked(self, locked):
         widget_names = [*self.INTERLOCK_WIDGETS]

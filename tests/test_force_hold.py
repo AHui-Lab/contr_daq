@@ -90,8 +90,12 @@ def test_force_hold_aborts_before_exceeding_total_z_budget():
     assert (decision.kind, decision.reason) == ("abort", "z_travel_limit")
 
 
-def test_force_hold_target_must_be_positive_and_above_tolerance():
+def test_force_hold_target_must_be_positive_but_may_be_below_tolerance():
     controller = ForceHoldController()
 
     with pytest.raises(ValueError, match="target"):
-        controller.arm(ForceHoldConfig(enabled=True), target_force_n=0.1, now=1.0)
+        controller.arm(ForceHoldConfig(enabled=True), target_force_n=0.0, now=1.0)
+
+    controller.arm(ForceHoldConfig(enabled=True), target_force_n=0.1, now=1.0)
+
+    assert controller.snapshot()["force_hold_target_n"] == pytest.approx(0.1)

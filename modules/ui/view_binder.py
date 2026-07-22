@@ -1,7 +1,14 @@
 from collections.abc import Callable
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QCheckBox, QDoubleSpinBox, QLabel, QSizePolicy
+from PySide6.QtWidgets import (
+    QCheckBox,
+    QDoubleSpinBox,
+    QHBoxLayout,
+    QLabel,
+    QSizePolicy,
+    QWidget,
+)
 
 from modules.app_state import AppState
 from modules.app_runtime import RuntimeStatus
@@ -117,16 +124,19 @@ class ViewBinder:
             "label_9": t("label.start_voltage"),
             "label_5": t("label.step_voltage"),
             "label_4": t("label.stop_voltage"),
-            "totalForceLabel": t("force.total", value=0.0),
-            "Force1_Label": t("force.point", index=1, value=0.0),
-            "Force2_Label": t("force.point", index=2, value=0.0),
-            "Force3_Label": t("force.point", index=3, value=0.0),
-            "Force4_Label": t("force.point", index=4, value=0.0),
+            "ivModeLabel": t("label.iv_mode"),
+            "totalForceLabel": t("force.total", value="0.00"),
+            "Force1_Label": t("force.point", index=1, value="0.00"),
+            "Force2_Label": t("force.point", index=2, value="0.00"),
+            "Force3_Label": t("force.point", index=3, value="0.00"),
+            "Force4_Label": t("force.point", index=4, value="0.00"),
         }
         for object_name, text in text_map.items():
             widget = getattr(self.ui, object_name, None)
             if widget is not None and hasattr(widget, "setText"):
                 widget.setText(text)
+
+        self._apply_iv_compact_text()
 
         self._translate_combo_items(
             "ivModeComboBox",
@@ -187,8 +197,8 @@ class ViewBinder:
             if widget is not None:
                 widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
 
-        self._set_min_height("tabWidget_4", 102)
-        self._set_max_height("tabWidget_4", 106)
+        self._set_min_height("tabWidget_4", 108)
+        self._set_max_height("tabWidget_4", 118)
         self._stabilize_iv_panel()
         self._set_min_height("groupBox_2", 102)
         self._set_max_height("groupBox_2", 106)
@@ -201,7 +211,7 @@ class ViewBinder:
         self._set_min_height("forcePlotWidget", 168)
         self._set_min_height("groupBox_5", 170)
         self._set_max_height("groupBox_5", 180)
-        self._set_min_height("groupBox_6", 350)
+        self._set_min_height("groupBox_6", 380)
         self._set_min_width("forceStartButton", 88)
         self._set_min_width("forceZeroButton", 88)
         self._stabilize_force_value_labels()
@@ -383,6 +393,56 @@ class ViewBinder:
             widget.setTitle(title)
 
     def _stabilize_iv_panel(self) -> None:
+        layout = getattr(self.ui, "gridLayout_2", None)
+        parent = getattr(self.ui, "tab_8", None)
+        if getattr(self.ui, "ivModeLabel", None) is None:
+            try:
+                self.ui.ivModeLabel = QLabel(parent)
+            except TypeError:
+                self.ui.ivModeLabel = QLabel()
+            if hasattr(self.ui.ivModeLabel, "setObjectName"):
+                self.ui.ivModeLabel.setObjectName("ivModeLabel")
+        self.ui.ivModeLabel.setText(self.translator("label.iv_mode"))
+
+        if layout is not None:
+            placement = {
+                "ivModeComboBox": (0, 0),
+                "ivRepeatSpinBox": (0, 1),
+                "ivStartSpinBox": (1, 0),
+                "ivStopSpinBox": (1, 1),
+                "ivStepSpinBox": (1, 2),
+            }
+            for object_name in (
+                "ivModeLabel",
+                "label_3",
+                "label_9",
+                "label_4",
+                "label_5",
+            ):
+                widget = getattr(self.ui, object_name, None)
+                if widget is not None:
+                    layout.removeWidget(widget)
+                    if hasattr(widget, "setVisible"):
+                        widget.setVisible(False)
+            for object_name, position in placement.items():
+                widget = getattr(self.ui, object_name, None)
+                if widget is not None:
+                    layout.removeWidget(widget)
+                    layout.addWidget(widget, *position)
+            button = getattr(self.ui, "ivControlButton", None)
+            if button is not None:
+                layout.removeWidget(button)
+                layout.addWidget(button, 0, 2)
+            if hasattr(layout, "setContentsMargins"):
+                layout.setContentsMargins(8, 4, 8, 4)
+            if hasattr(layout, "setHorizontalSpacing"):
+                layout.setHorizontalSpacing(8)
+            if hasattr(layout, "setVerticalSpacing"):
+                layout.setVerticalSpacing(4)
+            for column in range(3):
+                if hasattr(layout, "setColumnStretch"):
+                    layout.setColumnStretch(column, 1)
+
         for widget_name in (
             "ivModeComboBox",
             "ivRepeatSpinBox",
@@ -391,13 +451,48 @@ class ViewBinder:
             "ivStepSpinBox",
             "ivControlButton",
         ):
-            self._set_min_height(widget_name, 28)
+            self._set_min_height(widget_name, 24)
 
-        for widget_name in ("ivModeComboBox", "ivStartSpinBox", "ivStopSpinBox", "ivStepSpinBox"):
-            self._set_min_width(widget_name, 120)
+        for widget_name in (
+            "ivRepeatSpinBox",
+            "ivStartSpinBox",
+            "ivStopSpinBox",
+            "ivStepSpinBox",
+        ):
+            widget = getattr(self.ui, widget_name, None)
+            if widget is not None and hasattr(widget, "setStyleSheet"):
+                widget.setStyleSheet("")
 
-        self._set_min_width("ivRepeatSpinBox", 72)
-        self._set_min_width("ivControlButton", 104)
+        self._set_min_width("ivModeComboBox", 135)
+        self._set_min_width("ivRepeatSpinBox", 88)
+        self._set_min_width("ivStartSpinBox", 98)
+        self._set_min_width("ivStopSpinBox", 98)
+        self._set_min_width("ivStepSpinBox", 98)
+        self._set_min_width("ivControlButton", 90)
+        self._apply_iv_compact_text()
+
+    def _apply_iv_compact_text(self) -> None:
+        mode = getattr(self.ui, "ivModeComboBox", None)
+        if mode is not None:
+            if hasattr(mode, "setToolTip"):
+                mode.setToolTip(self.translator("iv.mode_tooltip"))
+            if hasattr(mode, "setAccessibleName"):
+                mode.setAccessibleName(self.translator("label.iv_mode"))
+
+        affixes = {
+            "ivRepeatSpinBox": ("iv.repeat_prefix", ""),
+            "ivStartSpinBox": ("iv.start_prefix", " V"),
+            "ivStopSpinBox": ("iv.stop_prefix", " V"),
+            "ivStepSpinBox": ("iv.step_prefix", " V"),
+        }
+        for object_name, (prefix_key, suffix) in affixes.items():
+            widget = getattr(self.ui, object_name, None)
+            if widget is None:
+                continue
+            if hasattr(widget, "setPrefix"):
+                widget.setPrefix(f"{self.translator(prefix_key)} ")
+            if hasattr(widget, "setSuffix"):
+                widget.setSuffix(suffix)
 
     def _compact_force_panel(self) -> None:
         layout = getattr(self.ui, "gridLayout_6", None)
@@ -417,13 +512,6 @@ class ViewBinder:
             "forceVoltageRangeComboBox": (1, 3),
             "forceFullScaleLabel": (1, 4),
             "forceFullScaleSpinBox": (1, 5),
-            "forceStartButton": (2, 0),
-            "forceZeroButton": (2, 1),
-            "totalForceLabel": (2, 2),
-            "Force1_Label": (2, 3),
-            "Force2_Label": (2, 4),
-            "Force3_Label": (2, 5),
-            "Force4_Label": (2, 6),
         }
 
         for object_name, position in placement.items():
@@ -433,6 +521,41 @@ class ViewBinder:
             layout.removeWidget(widget)
             layout.addWidget(widget, *position)
 
+        start_button = getattr(self.ui, "forceStartButton", None)
+        if start_button is not None:
+            layout.removeWidget(start_button)
+            layout.addWidget(start_button, 2, 0, 1, 3)
+        zero_button = getattr(self.ui, "forceZeroButton", None)
+        if zero_button is not None:
+            layout.removeWidget(zero_button)
+            layout.addWidget(zero_button, 2, 3, 1, 3)
+
+        values_row = getattr(self.ui, "forceValuesRow", None)
+        if values_row is None:
+            parent = getattr(self.ui, "groupBox_4", None)
+            values_row = QWidget(parent)
+            values_row.setObjectName("forceValuesRow")
+            values_layout = QHBoxLayout(values_row)
+            values_layout.setContentsMargins(0, 0, 0, 0)
+            values_layout.setSpacing(6)
+            values_row.forceValuesLayout = values_layout
+            self.ui.forceValuesRow = values_row
+        values_layout = values_row.forceValuesLayout
+        for widget_name in (
+            "totalForceLabel",
+            "Force1_Label",
+            "Force2_Label",
+            "Force3_Label",
+            "Force4_Label",
+        ):
+            widget = getattr(self.ui, widget_name, None)
+            if widget is not None:
+                layout.removeWidget(widget)
+                values_layout.removeWidget(widget)
+                values_layout.addWidget(widget, 1)
+        layout.removeWidget(values_row)
+        layout.addWidget(values_row, 3, 0, 1, 6)
+
         redundant_label = getattr(self.ui, "label_11", None)
         if redundant_label is not None and hasattr(redundant_label, "setVisible"):
             redundant_label.setVisible(False)
@@ -441,7 +564,7 @@ class ViewBinder:
             layout.setContentsMargins(8, 4, 8, 4)
         if hasattr(layout, "setSpacing"):
             layout.setSpacing(4)
-        for column in range(7):
+        for column in range(6):
             if hasattr(layout, "setColumnStretch"):
                 layout.setColumnStretch(column, 1)
 
@@ -529,17 +652,27 @@ class ViewBinder:
 
         self._set_min_height("scanQualityLabel", 16)
         self._set_max_height("scanQualityLabel", 18)
+        self._set_min_height("forceHoldStatusLabel", 16)
+        self._set_max_height("forceHoldStatusLabel", 34)
         self._set_min_height("Forward_circle", 24)
         self._set_max_height("Forward_circle", 28)
         self._set_min_height("Emergency_Stop", 26)
         self._set_max_height("Emergency_Stop", 30)
 
     def _stabilize_force_value_labels(self) -> None:
-        self._set_fixed_width("totalForceLabel", 92)
-        self._set_min_height("totalForceLabel", 22)
-        for widget_name in ("Force1_Label", "Force2_Label", "Force3_Label", "Force4_Label"):
-            self._set_fixed_width(widget_name, 58)
-            self._set_min_height(widget_name, 22)
+        for widget_name in (
+            "totalForceLabel",
+            "Force1_Label",
+            "Force2_Label",
+            "Force3_Label",
+            "Force4_Label",
+        ):
+            widget = getattr(self.ui, widget_name, None)
+            self._set_min_width(widget_name, 92)
+            self._set_max_width(widget_name, 16777215)
+            self._set_min_height(widget_name, 24)
+            if widget is not None and hasattr(widget, "setAlignment"):
+                widget.setAlignment(Qt.AlignCenter)
 
     def _configure_scan_panel(self) -> None:
         layout = getattr(self.ui, "gridLayout_11", None)
@@ -553,6 +686,7 @@ class ViewBinder:
             "scanLedSizeLabel",
             "scanDistanceLabel",
             "scanQualityLabel",
+            "forceHoldStatusLabel",
             "forceHoldToleranceLabel",
             "forceHoldStepLabel",
         ):
@@ -605,6 +739,9 @@ class ViewBinder:
         self.ui.forceHoldToleranceLabel.setText(t("force_hold.tolerance"))
         self.ui.forceHoldStepLabel.setText(t("force_hold.z_step"))
         self.ui.forceHoldEnableCheckBox.setToolTip(t("force_hold.tooltip"))
+        self.ui.forceHoldStatusLabel.setText(t("force_hold.status_off"))
+        self.ui.forceHoldStatusLabel.setToolTip(t("force_hold.workflow"))
+        self.ui.forceHoldStatusLabel.setWordWrap(True)
         self.ui.scanQualityLabel.setText("")
 
         placement = {
@@ -641,14 +778,19 @@ class ViewBinder:
             layout.addWidget(force_hold_enable, 7, 0, 1, 2)
 
         quality_label = getattr(self.ui, "scanQualityLabel", None)
+        force_hold_status = getattr(self.ui, "forceHoldStatusLabel", None)
+        if force_hold_status is not None:
+            layout.removeWidget(force_hold_status)
+            layout.addWidget(force_hold_status, 10, 0, 1, 2)
+
         if quality_label is not None:
             layout.removeWidget(quality_label)
-            layout.addWidget(quality_label, 10, 0, 1, 2)
+            layout.addWidget(quality_label, 11, 0, 1, 2)
 
         start_button = getattr(self.ui, "Forward_circle", None)
         if start_button is not None:
             layout.removeWidget(start_button)
-            layout.addWidget(start_button, 11, 0, 1, 2)
+            layout.addWidget(start_button, 12, 0, 1, 2)
 
         cancel_button = getattr(self.ui, "Backward_circle", None)
         if cancel_button is not None and hasattr(cancel_button, "setVisible"):
@@ -657,7 +799,7 @@ class ViewBinder:
         stop_button = getattr(self.ui, "Emergency_Stop", None)
         if stop_button is not None:
             layout.removeWidget(stop_button)
-            layout.addWidget(stop_button, 12, 0, 1, 2)
+            layout.addWidget(stop_button, 13, 0, 1, 2)
 
         daq_layout = getattr(self.ui, "gridLayout_9", None)
         if daq_layout is not None:
@@ -670,11 +812,11 @@ class ViewBinder:
         if speed_label is not None and hasattr(speed_label, "setVisible"):
             speed_label.setVisible(True)
 
-        for row in range(13):
+        for row in range(14):
             if hasattr(layout, "setRowMinimumHeight"):
                 layout.setRowMinimumHeight(row, 0)
             if hasattr(layout, "setRowStretch"):
-                layout.setRowStretch(row, 1 if row == 10 else 0)
+                layout.setRowStretch(row, 1 if row == 11 else 0)
 
         for column in range(2):
             if hasattr(layout, "setColumnStretch"):
