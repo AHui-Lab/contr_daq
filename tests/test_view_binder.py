@@ -565,11 +565,16 @@ def test_setup_builds_single_scan_panel_without_loop_controls():
     assert ui.gridLayout_11.widgets[(5, 1)] is ui.Speed_Setting_val
     assert ui.gridLayout_11.widgets[(6, 1)] is ui.sampleRateSpinBox
     assert ui.gridLayout_11.widgets[(7, 0, 1, 2)] is ui.forceHoldEnableCheckBox
-    assert ui.gridLayout_11.widgets[(8, 1)] is ui.forceHoldToleranceSpinBox
-    assert ui.gridLayout_11.widgets[(9, 1)] is ui.forceHoldStepSpinBox
-    assert ui.gridLayout_11.widgets[(10, 0, 1, 2)] is ui.forceHoldStatusLabel
-    assert ui.gridLayout_11.widgets[(12, 0, 1, 2)] is ui.Forward_circle
-    assert ui.gridLayout_11.widgets[(13, 0, 1, 2)] is ui.Emergency_Stop
+    assert (
+        ui.gridLayout_11.widgets[(8, 0, 1, 2)]
+        is ui.forceHoldFastResponseCheckBox
+    )
+    assert ui.forceHoldFastResponseCheckBox.checked is False
+    assert ui.gridLayout_11.widgets[(9, 1)] is ui.forceHoldToleranceSpinBox
+    assert ui.gridLayout_11.widgets[(10, 1)] is ui.forceHoldStepSpinBox
+    assert ui.gridLayout_11.widgets[(11, 0, 1, 2)] is ui.forceHoldStatusLabel
+    assert ui.gridLayout_11.widgets[(13, 0, 1, 2)] is ui.Forward_circle
+    assert ui.gridLayout_11.widgets[(14, 0, 1, 2)] is ui.Emergency_Stop
     assert ui.gridLayout_9.widgets[(0, 2, 1, 3)] is ui.startStopButton
     assert ui.daqDeviceComboBox.minimum_width == 100
     assert ui.Backward_circle.visible is False
@@ -582,7 +587,7 @@ def test_setup_builds_single_scan_panel_without_loop_controls():
     assert ui.Emergency_Stop.maximum_height == 30
     assert ui.gridLayout_11.margins == (8, 2, 8, 2)
     assert ui.gridLayout_11.spacing == 2
-    assert ui.gridLayout_11.row_stretches[11] == 1
+    assert ui.gridLayout_11.row_stretches[12] == 1
     assert all(ui.gridLayout_11.row_stretches[row] == 0 for row in range(6))
     assert all(ui.gridLayout_11.row_minimum_heights[row] == 0 for row in range(9))
 

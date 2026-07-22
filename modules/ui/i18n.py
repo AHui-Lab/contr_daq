@@ -98,6 +98,7 @@ TRANSLATIONS = {
         "label.led_size": "LED Size (mm)",
         "label.scan_distance": "Scan Distance (mm)",
         "force_hold.enable": "Force Hold During Scan",
+        "force_hold.fast_response": "Fast Response (Experimental)",
         "force_hold.tolerance": "Force Tolerance",
         "force_hold.z_step": "Z Correction Step",
         "force_hold.tooltip": (
@@ -105,6 +106,13 @@ TRANSLATIONS = {
             "Uses the force captured by Confirm Load as the target. Z+ is assumed "
             "to reduce the gap and increase force."
         ),
+        "force_hold.fast_tooltip": (
+            "Uses a 20 ms force window, 20 ms error confirmation and 50 ms control "
+            "interval. Best with NI analog force acquisition; a 0.0040 mm Z step is "
+            "a practical starting point. Keep disabled if the force signal is noisy."
+        ),
+        "force_hold.profile_standard": "Standard",
+        "force_hold.profile_fast": "Fast",
         "force_hold.workflow": (
             "1. Start force acquisition and zero with no load. 2. Align and apply the "
             "acceptable load. 3. Press Confirm Load. 4. Enable Force Hold and review "
@@ -116,10 +124,10 @@ TRANSLATIONS = {
         "force_hold.status_wait_force": "Enabled · waiting for a valid force sample",
         "force_hold.status_confirm": "Enabled · press Confirm Load in Step 2",
         "force_hold.status_ready": (
-            "Ready for next scan · target {target:.2f} N · now {current:.2f} N"
+            "{profile} ready · target {target:.2f} N · now {current:.2f} N"
         ),
         "force_hold.status_active": (
-            "Active · target {target:.2f} N · {corrections} corrections · Z {offset:+.4f} mm"
+            "{profile} active · target {target:.2f} N · {corrections} corrections · Z {offset:+.4f} mm"
         ),
         "label.repeat": "Repeat",
         "label.start_voltage": "Start Voltage",
@@ -256,7 +264,7 @@ TRANSLATIONS = {
         "results.files_none": "No files were saved.",
         "results.force_hold_off": "Off",
         "results.force_hold_on": (
-            "{corrections} corrections · target {target:.2f} N · Z {offset:+.4f} mm"
+            "{profile} · {corrections} corrections · target {target:.2f} N · Z {offset:+.4f} mm"
         ),
         "results.folder": "Output folder",
         "results.open_folder": "Open Folder",
@@ -409,12 +417,20 @@ TRANSLATIONS = {
         "label.led_size": "单颗 LED 尺寸 (mm)",
         "label.scan_distance": "扫描距离 (mm)",
         "force_hold.enable": "扫描时保持力",
+        "force_hold.fast_response": "快速响应（实验性）",
         "force_hold.tolerance": "力容差",
         "force_hold.z_step": "Z 轴修正步长",
         "force_hold.tooltip": (
             "为下一次扫描启用力闭环；空闲时不会移动 Z 轴。"
             "以“确认负载”时记录的合力为目标，默认 Z+ 会减小间隙并增大压力。"
         ),
+        "force_hold.fast_tooltip": (
+            "采用 20 ms 力值窗口、20 ms 误差确认和 50 ms 控制间隔。"
+            "建议配合 NI 模拟量力采集使用，Z 步长可从 0.0040 mm 开始测试；"
+            "如果力信号噪声较大，请关闭此选项。"
+        ),
+        "force_hold.profile_standard": "标准",
+        "force_hold.profile_fast": "快速",
         "force_hold.workflow": (
             "1. 启动力采集，并在无负载时清零。2. 人工对准并施加可接受压力。"
             "3. 点击“确认负载”。4. 勾选力保持并核对目标值和当前值。"
@@ -425,10 +441,10 @@ TRANSLATIONS = {
         "force_hold.status_wait_force": "已启用 · 正在等待有效力数据",
         "force_hold.status_confirm": "已启用 · 请在步骤 2 点击“确认负载”",
         "force_hold.status_ready": (
-            "下一次扫描已就绪 · 目标 {target:.2f} N · 当前 {current:.2f} N"
+            "{profile}模式已就绪 · 目标 {target:.2f} N · 当前 {current:.2f} N"
         ),
         "force_hold.status_active": (
-            "闭环工作中 · 目标 {target:.2f} N · 已修正 {corrections} 次 · Z {offset:+.4f} mm"
+            "{profile}模式工作中 · 目标 {target:.2f} N · 已修正 {corrections} 次 · Z {offset:+.4f} mm"
         ),
         "label.repeat": "重复次数",
         "label.start_voltage": "起始电压",
@@ -560,7 +576,7 @@ TRANSLATIONS = {
         "results.files_none": "没有保存文件。",
         "results.force_hold_off": "未启用",
         "results.force_hold_on": (
-            "修正 {corrections} 次 · 目标 {target:.2f} N · Z {offset:+.4f} mm"
+            "{profile} · 修正 {corrections} 次 · 目标 {target:.2f} N · Z {offset:+.4f} mm"
         ),
         "results.folder": "输出文件夹",
         "results.open_folder": "打开文件夹",

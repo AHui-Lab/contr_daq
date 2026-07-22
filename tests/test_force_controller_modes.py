@@ -179,6 +179,7 @@ def test_start_analog_force_uses_independent_force_device_settings(monkeypatch):
         "device": "DevForce",
         "channels": ["ai0", "ai1", "ai2", "ai3"],
         "sample_rate": 2000,
+        "chunk_size": 20,
         "terminal_config": "DIFFERENTIAL",
         "input_min_voltage": -10.0,
         "input_max_voltage": 10.0,

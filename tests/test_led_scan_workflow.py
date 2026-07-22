@@ -306,6 +306,40 @@ def test_force_hold_accepts_negative_individual_channels_when_total_is_positive(
     assert readiness.blockers == ()
 
 
+def test_force_hold_fast_response_uses_low_latency_timing_and_force_window():
+    workflow = object.__new__(LedScanWorkflow)
+    workflow.ui = type("UI", (), {})()
+    workflow.ui.forceHoldEnableCheckBox = DummyCheckBox(True)
+    workflow.ui.forceHoldFastResponseCheckBox = DummyCheckBox(True)
+    workflow.ui.forceHoldToleranceSpinBox = DummyValueControl(0.25)
+    workflow.ui.forceHoldStepSpinBox = DummyValueControl(0.004)
+    workflow._force_hold = ForceHoldController()
+    requested_windows = []
+    workflow.force = type(
+        "Force",
+        (),
+        {
+            "latest_force": 10.0,
+            "force_control_snapshot": lambda self, window_s: (
+                requested_windows.append(window_s) or (10.0, 5.0)
+            ),
+        },
+    )()
+
+    config = workflow._force_hold_config()
+    measured, sample_time = workflow._force_snapshot()
+
+    assert config.fast_response is True
+    assert config.control_interval_s == pytest.approx(0.05)
+    assert config.outside_confirm_s == pytest.approx(0.02)
+    assert config.measurement_window_s == pytest.approx(0.02)
+    assert config.signal_timeout_s == pytest.approx(0.15)
+    assert config.max_offset_mm == pytest.approx(0.05)
+    assert config.hard_error_n == pytest.approx(1.0)
+    assert requested_windows == pytest.approx([0.02])
+    assert (measured, sample_time) == pytest.approx((10.0, 5.0))
+
+
 def test_force_hold_status_explains_each_enablement_step():
     workflow = object.__new__(LedScanWorkflow)
     workflow.translator = _translator

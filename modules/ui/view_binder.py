@@ -116,6 +116,7 @@ class ViewBinder:
             "scanLedSizeLabel": t("label.led_size"),
             "scanDistanceLabel": t("label.scan_distance"),
             "forceHoldEnableCheckBox": t("force_hold.enable"),
+            "forceHoldFastResponseCheckBox": t("force_hold.fast_response"),
             "forceHoldToleranceLabel": t("force_hold.tolerance"),
             "forceHoldStepLabel": t("force_hold.z_step"),
             "label_2": t("label.device"),
@@ -644,6 +645,7 @@ class ViewBinder:
             "distanceSpinBox_2",
             "Speed_Setting_val",
             "sampleRateSpinBox",
+            "forceHoldFastResponseCheckBox",
         ):
             widget = getattr(self.ui, widget_name, None)
             if widget is not None and hasattr(widget, "setStyleSheet"):
@@ -706,6 +708,11 @@ class ViewBinder:
             checkbox.setObjectName("forceHoldEnableCheckBox")
             checkbox.setChecked(False)
             self.ui.forceHoldEnableCheckBox = checkbox
+        if getattr(self.ui, "forceHoldFastResponseCheckBox", None) is None:
+            checkbox = QCheckBox(parent)
+            checkbox.setObjectName("forceHoldFastResponseCheckBox")
+            checkbox.setChecked(False)
+            self.ui.forceHoldFastResponseCheckBox = checkbox
         for object_name in (
             "forceHoldToleranceSpinBox",
             "forceHoldStepSpinBox",
@@ -736,9 +743,15 @@ class ViewBinder:
         self.ui.scanLedSizeLabel.setText(t("label.led_size"))
         self.ui.scanDistanceLabel.setText(t("label.scan_distance"))
         self.ui.forceHoldEnableCheckBox.setText(t("force_hold.enable"))
+        self.ui.forceHoldFastResponseCheckBox.setText(
+            t("force_hold.fast_response")
+        )
         self.ui.forceHoldToleranceLabel.setText(t("force_hold.tolerance"))
         self.ui.forceHoldStepLabel.setText(t("force_hold.z_step"))
         self.ui.forceHoldEnableCheckBox.setToolTip(t("force_hold.tooltip"))
+        self.ui.forceHoldFastResponseCheckBox.setToolTip(
+            t("force_hold.fast_tooltip")
+        )
         self.ui.forceHoldStatusLabel.setText(t("force_hold.status_off"))
         self.ui.forceHoldStatusLabel.setToolTip(t("force_hold.workflow"))
         self.ui.forceHoldStatusLabel.setWordWrap(True)
@@ -759,10 +772,10 @@ class ViewBinder:
             "Speed_Setting_val": (5, 1),
             "label": (6, 0),
             "sampleRateSpinBox": (6, 1),
-            "forceHoldToleranceLabel": (8, 0),
-            "forceHoldToleranceSpinBox": (8, 1),
-            "forceHoldStepLabel": (9, 0),
-            "forceHoldStepSpinBox": (9, 1),
+            "forceHoldToleranceLabel": (9, 0),
+            "forceHoldToleranceSpinBox": (9, 1),
+            "forceHoldStepLabel": (10, 0),
+            "forceHoldStepSpinBox": (10, 1),
         }
 
         for object_name, position in placement.items():
@@ -777,20 +790,25 @@ class ViewBinder:
             layout.removeWidget(force_hold_enable)
             layout.addWidget(force_hold_enable, 7, 0, 1, 2)
 
+        fast_response = getattr(self.ui, "forceHoldFastResponseCheckBox", None)
+        if fast_response is not None:
+            layout.removeWidget(fast_response)
+            layout.addWidget(fast_response, 8, 0, 1, 2)
+
         quality_label = getattr(self.ui, "scanQualityLabel", None)
         force_hold_status = getattr(self.ui, "forceHoldStatusLabel", None)
         if force_hold_status is not None:
             layout.removeWidget(force_hold_status)
-            layout.addWidget(force_hold_status, 10, 0, 1, 2)
+            layout.addWidget(force_hold_status, 11, 0, 1, 2)
 
         if quality_label is not None:
             layout.removeWidget(quality_label)
-            layout.addWidget(quality_label, 11, 0, 1, 2)
+            layout.addWidget(quality_label, 12, 0, 1, 2)
 
         start_button = getattr(self.ui, "Forward_circle", None)
         if start_button is not None:
             layout.removeWidget(start_button)
-            layout.addWidget(start_button, 12, 0, 1, 2)
+            layout.addWidget(start_button, 13, 0, 1, 2)
 
         cancel_button = getattr(self.ui, "Backward_circle", None)
         if cancel_button is not None and hasattr(cancel_button, "setVisible"):
@@ -799,7 +817,7 @@ class ViewBinder:
         stop_button = getattr(self.ui, "Emergency_Stop", None)
         if stop_button is not None:
             layout.removeWidget(stop_button)
-            layout.addWidget(stop_button, 13, 0, 1, 2)
+            layout.addWidget(stop_button, 14, 0, 1, 2)
 
         daq_layout = getattr(self.ui, "gridLayout_9", None)
         if daq_layout is not None:
@@ -812,11 +830,11 @@ class ViewBinder:
         if speed_label is not None and hasattr(speed_label, "setVisible"):
             speed_label.setVisible(True)
 
-        for row in range(14):
+        for row in range(15):
             if hasattr(layout, "setRowMinimumHeight"):
                 layout.setRowMinimumHeight(row, 0)
             if hasattr(layout, "setRowStretch"):
-                layout.setRowStretch(row, 1 if row == 11 else 0)
+                layout.setRowStretch(row, 1 if row == 12 else 0)
 
         for column in range(2):
             if hasattr(layout, "setColumnStretch"):

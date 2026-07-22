@@ -669,8 +669,14 @@ class WorkbenchLayout:
             f"{float(getattr(result, 'capture_duration_s', 0.0)):.3f} s"
         )
         if bool(getattr(result, "force_hold_enabled", False)):
+            profile = t(
+                "force_hold.profile_fast"
+                if bool(getattr(result, "force_hold_fast_response", False))
+                else "force_hold.profile_standard"
+            )
             force_hold_text = t(
                 "results.force_hold_on",
+                profile=profile,
                 corrections=int(
                     getattr(result, "force_hold_correction_count", 0)
                 ),

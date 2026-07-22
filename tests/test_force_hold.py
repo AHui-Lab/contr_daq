@@ -8,6 +8,8 @@ def test_force_hold_defaults_use_conservative_large_error_limit():
 
     assert config.hard_error_n == pytest.approx(1.0)
     assert config.max_offset_mm == pytest.approx(0.05)
+    assert config.fast_response is False
+    assert config.measurement_window_s == pytest.approx(0.05)
 
 
 def _armed_controller(**overrides):
@@ -65,6 +67,23 @@ def test_force_hold_does_not_chase_a_single_transient():
     assert controller.evaluate(9.5, 1.20, 1.20).kind == "wait"
     assert controller.evaluate(10.0, 1.22, 1.22).kind == "hold"
     assert controller.evaluate(9.5, 1.24, 1.24).kind == "wait"
+
+
+def test_fast_response_can_request_a_correction_after_50_ms():
+    controller = _armed_controller(
+        fast_response=True,
+        control_interval_s=0.05,
+        outside_confirm_s=0.02,
+        measurement_window_s=0.02,
+        signal_timeout_s=0.15,
+    )
+
+    assert controller.evaluate(9.5, 1.01, 1.01).kind == "wait"
+    assert controller.evaluate(9.5, 1.03, 1.03).kind == "wait"
+    decision = controller.evaluate(9.5, 1.05, 1.05)
+
+    assert decision.kind == "correct"
+    assert decision.direction == 1
 
 
 def test_force_hold_aborts_on_stale_signal_and_large_error():

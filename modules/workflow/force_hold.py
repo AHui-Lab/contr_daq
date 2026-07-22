@@ -6,10 +6,12 @@ from threading import RLock
 @dataclass(frozen=True)
 class ForceHoldConfig:
     enabled: bool = False
+    fast_response: bool = False
     tolerance_n: float = 0.20
     z_step_mm: float = 0.0020
     control_interval_s: float = 0.15
     outside_confirm_s: float = 0.05
+    measurement_window_s: float = 0.05
     signal_timeout_s: float = 0.25
     max_offset_mm: float = 0.0500
     hard_error_n: float = 1.0
@@ -22,7 +24,11 @@ class ForceHoldConfig:
             raise ValueError("Force-hold Z step must be greater than zero")
         if self.z_step_mm > self.max_offset_mm:
             raise ValueError("Force-hold Z step exceeds the total Z correction limit")
-        if self.control_interval_s <= 0 or self.outside_confirm_s < 0:
+        if (
+            self.control_interval_s <= 0
+            or self.outside_confirm_s < 0
+            or self.measurement_window_s <= 0
+        ):
             raise ValueError("Force-hold timing values are invalid")
         if self.signal_timeout_s <= 0 or self.max_offset_mm <= 0:
             raise ValueError("Force-hold safety limits are invalid")

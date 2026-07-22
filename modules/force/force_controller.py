@@ -66,6 +66,7 @@ class ForceController:
     ANALOG_OUTPUT_RATE = 400
     ANALOG_MEDIAN_WINDOW = 3
     ANALOG_AVERAGE_WINDOW_MS = 5
+    ANALOG_READ_INTERVAL_S = 0.010
 
     def __init__(self, ui, recorder=None, config=None, runtime=None, resources=None, translator=None):
         self.ui = ui
@@ -304,10 +305,20 @@ class ForceController:
         if self.runtime is not None:
             self.runtime.set("force", RuntimeStatus.CONNECTING)
         try:
+            chunk_size = max(
+                1,
+                int(
+                    round(
+                        active_config.sample_rate_hz
+                        * self.ANALOG_READ_INTERVAL_S
+                    )
+                ),
+            )
             self.thread = AnalogForceThread(
                 device=device,
                 channels=list(active_config.channels),
                 sample_rate=active_config.sample_rate_hz,
+                chunk_size=chunk_size,
                 terminal_config=active_config.terminal_configuration,
                 input_min_voltage=active_config.daq_input_min_v,
                 input_max_voltage=active_config.daq_input_max_v,
