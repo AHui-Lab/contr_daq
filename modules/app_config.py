@@ -18,6 +18,17 @@ class AppConfig:
     max_daq_chunk_size: int = 10000
     force_serial_port: str = "COM15"
     force_serial_baudrate: int = 9600
+    force_safety_total_high_n: float = 0.0
+    force_safety_channel_high_n: float = 0.0
+    force_safety_imbalance_n: float = 0.0
+    force_safety_rise_rate_n_s: float = 0.0
+    force_safety_retract_enabled: bool = False
+    force_safety_retract_mm: float = 0.002
+    force_commission_tolerance_n: float = 0.2
+    force_commission_z_step_mm: float = 0.0001
+    force_commission_control_interval_s: float = 0.15
+    force_commission_confirm_s: float = 0.05
+    force_commission_max_offset_mm: float = 0.01
     camera_1_index: int = 0
     camera_2_index: int = 1
     sample_resistances_ohm: list[float] = field(default_factory=list)
@@ -33,6 +44,41 @@ class AppConfig:
             str(self.force_serial_port or "COM15").strip() or "COM15"
         )
         self.force_serial_baudrate = max(int(self.force_serial_baudrate), 1)
+        self.force_safety_total_high_n = max(
+            float(self.force_safety_total_high_n), 0.0
+        )
+        self.force_safety_channel_high_n = max(
+            float(self.force_safety_channel_high_n), 0.0
+        )
+        self.force_safety_imbalance_n = max(
+            float(self.force_safety_imbalance_n), 0.0
+        )
+        self.force_safety_rise_rate_n_s = max(
+            float(self.force_safety_rise_rate_n_s), 0.0
+        )
+        self.force_safety_retract_enabled = bool(
+            self.force_safety_retract_enabled
+        )
+        self.force_safety_retract_mm = max(
+            float(self.force_safety_retract_mm), 0.0001
+        )
+        self.force_commission_tolerance_n = max(
+            float(self.force_commission_tolerance_n), 0.001
+        )
+        self.force_commission_z_step_mm = min(
+            max(float(self.force_commission_z_step_mm), 0.0001),
+            0.01,
+        )
+        self.force_commission_control_interval_s = max(
+            float(self.force_commission_control_interval_s), 0.02
+        )
+        self.force_commission_confirm_s = max(
+            float(self.force_commission_confirm_s), 0.0
+        )
+        self.force_commission_max_offset_mm = max(
+            float(self.force_commission_max_offset_mm),
+            self.force_commission_z_step_mm,
+        )
         self.camera_1_index = max(int(self.camera_1_index), 0)
         self.camera_2_index = max(int(self.camera_2_index), 0)
         if not self.sample_resistances_ohm:

@@ -32,6 +32,9 @@ def test_config_can_be_saved_and_loaded(tmp_path):
         data_save_dir="D:/experiment-data",
         force_serial_port="COM7",
         force_serial_baudrate=19200,
+        force_safety_total_high_n=12.5,
+        force_safety_retract_enabled=True,
+        force_commission_z_step_mm=0.0005,
         camera_1_index=2,
         camera_2_index=5,
     )
@@ -47,6 +50,9 @@ def test_config_can_be_saved_and_loaded(tmp_path):
     assert loaded.data_save_dir == "D:/experiment-data"
     assert loaded.force_serial_port == "COM7"
     assert loaded.force_serial_baudrate == 19200
+    assert loaded.force_safety_total_high_n == pytest.approx(12.5)
+    assert loaded.force_safety_retract_enabled is True
+    assert loaded.force_commission_z_step_mm == pytest.approx(0.0005)
     assert loaded.camera_1_index == 2
     assert loaded.camera_2_index == 5
     assert loaded.sample_resistances_ohm[0] == pytest.approx(220.0)

@@ -56,6 +56,7 @@ class MainWindow:
         )
         self.view_binder.setup()
         self._settings_dialog = None
+        self._force_commissioning_dialog = None
 
         self.camera_controller_1 = CameraController(
             self.ui.Camera1,
@@ -144,6 +145,13 @@ class MainWindow:
             self.translator("menu.runtime_settings")
         )
         self.settings_action.triggered.connect(self.open_settings)
+        self.tools_menu = self.ui.menuBar().addMenu(self.translator("menu.tools"))
+        self.force_commissioning_action = self.tools_menu.addAction(
+            self.translator("menu.force_commissioning")
+        )
+        self.force_commissioning_action.triggered.connect(
+            self.open_force_commissioning
+        )
 
     def open_settings(self):
         if self._settings_dialog is None:
@@ -159,6 +167,26 @@ class MainWindow:
         self._settings_dialog.show()
         self._settings_dialog.raise_()
         self._settings_dialog.activateWindow()
+
+    def open_force_commissioning(self):
+        if self._force_commissioning_dialog is None:
+            from modules.ui.force_commissioning_dialog import (
+                ForceCommissioningDialog,
+            )
+
+            self._force_commissioning_dialog = ForceCommissioningDialog(
+                ui=self.ui,
+                force_controller=self.force_controller,
+                motion_controller=self.motion_controller,
+                config=self.config,
+                translator=self.translator,
+                on_config_saved=lambda: self.config.save(CONFIG_FILE),
+                parent=self.ui,
+            )
+        self._force_commissioning_dialog.load_from_config()
+        self._force_commissioning_dialog.show()
+        self._force_commissioning_dialog.raise_()
+        self._force_commissioning_dialog.activateWindow()
 
     def apply_runtime_settings(self):
         language_changed = self.translator.set_language(self.config.ui_language)
@@ -178,6 +206,10 @@ class MainWindow:
     def _retranslate_ui(self):
         self.settings_menu.setTitle(self.translator("menu.settings"))
         self.settings_action.setText(self.translator("menu.runtime_settings"))
+        self.tools_menu.setTitle(self.translator("menu.tools"))
+        self.force_commissioning_action.setText(
+            self.translator("menu.force_commissioning")
+        )
         if hasattr(self, "scan_workflow"):
             self.scan_workflow.retranslate_ui()
         self.view_binder.refresh_static_text()
@@ -190,6 +222,8 @@ class MainWindow:
         self.force_controller.retranslate_ui()
         if self._settings_dialog is not None:
             self._settings_dialog.retranslate_ui()
+        if self._force_commissioning_dialog is not None:
+            self._force_commissioning_dialog.retranslate_ui()
 
     def reset_defaults_and_restart(self):
         self.config.reset_to_defaults()
@@ -275,6 +309,12 @@ class MainWindow:
         settings_dialog = getattr(self, "_settings_dialog", None)
         if settings_dialog is not None:
             settings_dialog.shutdown()
+
+        force_commissioning_dialog = getattr(
+            self, "_force_commissioning_dialog", None
+        )
+        if force_commissioning_dialog is not None:
+            force_commissioning_dialog.shutdown()
 
         for controller_name in ("camera_controller_1", "camera_controller_2"):
             controller = getattr(self, controller_name, None)

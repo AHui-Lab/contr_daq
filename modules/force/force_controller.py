@@ -87,6 +87,7 @@ class ForceController:
         self.zero_offset = np.zeros(self.CHANNEL_COUNT)
         self.zero_buffer = deque(maxlen=300)
         self._force_control_buffer = deque(maxlen=400)
+        self._force_channel_control_buffer = deque(maxlen=400)
         self._state_lock = Lock()
         self._pending_force_plot_rows = deque(maxlen=24)
         self._force_display_sample_index = 0
@@ -210,6 +211,7 @@ class ForceController:
         self.plot.clear()
         self.zero_buffer.clear()
         self._force_control_buffer.clear()
+        self._force_channel_control_buffer.clear()
         self._pending_force_plot_rows.clear()
         self.zero_offset = np.zeros(self.CHANNEL_COUNT)
         self.latest_vals = None
@@ -362,6 +364,7 @@ class ForceController:
             self.zero_offset = np.zeros(self.CHANNEL_COUNT)
             self.zero_buffer.clear()
             self._force_control_buffer.clear()
+            self._force_channel_control_buffer.clear()
             self._pending_force_plot_rows.clear()
             self._force_display_sample_index = 0
             self.latest_vals = None
@@ -394,6 +397,7 @@ class ForceController:
         with self._state_lock:
             self.zero_offset = np.mean(window, axis=0)
             self._force_control_buffer.clear()
+            self._force_channel_control_buffer.clear()
         log("[Force] Zero completed")
 
     def on_started(self, ok):
@@ -436,6 +440,9 @@ class ForceController:
             self.latest_vals = corrected_vals
             self.latest_force = corrected_total
             self._force_control_buffer.append((sample_clock, corrected_total))
+            self._force_channel_control_buffer.append(
+                (sample_clock, corrected_vals.copy())
+            )
 
         if self.recorder.recording and self.active_mode != "analog":
             self.recorder.add_force_data(
@@ -520,6 +527,10 @@ class ForceController:
                 (float(sample_time), float(total))
                 for sample_time, total in zip(sample_times, corrected_totals)
             )
+            self._force_channel_control_buffer.extend(
+                (float(sample_time), row.copy())
+                for sample_time, row in zip(sample_times, corrected_rows)
+            )
             self._pending_force_plot_rows.append((times, corrected_rows))
 
         if self.recorder.recording:
@@ -542,6 +553,24 @@ class ForceController:
                 if sample_time >= cutoff
             ]
         return float(np.median(values)), latest_time
+
+    def force_safety_snapshot(self, window_s=0.02):
+        """Return median total and per-channel values from the same recent window."""
+        with self._state_lock:
+            if not self._force_channel_control_buffer:
+                return None, None, None
+            latest_time = float(self._force_channel_control_buffer[-1][0])
+            cutoff = latest_time - max(float(window_s), 0.0)
+            rows = [
+                np.asarray(values, dtype=float)
+                for sample_time, values in self._force_channel_control_buffer
+                if sample_time >= cutoff
+            ]
+        if not rows:
+            return None, None, latest_time
+        channel_medians = np.median(np.vstack(rows), axis=0)
+        total = float(np.sum(channel_medians))
+        return total, tuple(float(value) for value in channel_medians), latest_time
 
     def _analog_chunk_timing(self, row_count):
         thread = self.thread

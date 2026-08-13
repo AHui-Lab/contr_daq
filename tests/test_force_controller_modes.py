@@ -373,6 +373,29 @@ def test_force_control_snapshot_uses_recent_median(monkeypatch):
     assert sample_time == pytest.approx(10.02)
 
 
+def test_force_safety_snapshot_returns_per_channel_medians(monkeypatch):
+    DummyThread.created = []
+    monkeypatch.setattr("modules.force.force_controller.AnalogForceThread", DummyThread)
+    controller = ForceController(DummyUi(), recorder=DummyRecorder())
+    controller.start()
+    controller.thread.force_output_sample_rate = 100.0
+    controller.thread.force_chunk_start_monotonic = 10.0
+
+    controller._on_analog_force_chunk_from_thread(
+        [
+            [1.0, 2.0, -1.0, 4.0],
+            [1.0, 2.0, -1.0, 4.0],
+            [9.0, 9.0, 9.0, 9.0],
+        ]
+    )
+
+    total, channels, sample_time = controller.force_safety_snapshot(window_s=0.05)
+
+    assert channels == pytest.approx((1.0, 2.0, -1.0, 4.0))
+    assert total == pytest.approx(6.0)
+    assert sample_time == pytest.approx(10.02)
+
+
 def test_force_value_format_keeps_units_readable_for_large_values():
     assert ForceController._format_force_value(1.23456) == "1.235"
     assert ForceController._format_force_value(12345.67) == "12345.7"

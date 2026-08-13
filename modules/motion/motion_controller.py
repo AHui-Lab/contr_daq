@@ -115,6 +115,42 @@ class MotionController:
     def stop_force_hold_z(self):
         return self.motion.stop_axis(self.AXIS_CONFIG["Z"]["axis"])
 
+    def queue_force_hold_z_step(self, direction, distance_mm):
+        """Queue a guarded Z micro-step so UI timers never call hardware directly."""
+        step_mm = float(distance_mm)
+        if int(direction) not in (-1, 1):
+            raise ValueError("Force-hold Z direction must be +1 or -1")
+        if step_mm <= 0 or step_mm > self.MAX_FORCE_HOLD_STEP_MM:
+            raise ValueError(
+                f"Force-hold Z step must be within 0 to {self.MAX_FORCE_HOLD_STEP_MM:g} mm"
+            )
+        config = self.AXIS_CONFIG["Z"]
+        length_pulse = max(1, round(step_mm * config["pulses_per_mm"]))
+        profile = self._build_motion_profile(
+            speed_mm_s=self.FORCE_HOLD_Z_SPEED_MM_S,
+            pulses_per_mm=config["pulses_per_mm"],
+            accel_mm_s2=config["accel_mm_s2"],
+        )
+        self.motion_worker.submit_move(
+            config["axis"],
+            int(direction),
+            length_pulse,
+            profile,
+        )
+        log(
+            f"[Force Commissioning] queued Z "
+            f"{'+' if direction > 0 else '-'}{step_mm:.4f} mm"
+        )
+        return True
+
+    def request_force_hold_retract(self, distance_mm):
+        """Queue a Z- retract; callers must independently verify Z direction first."""
+        return self.queue_force_hold_z_step(-1, distance_mm)
+
+    def request_force_hold_stop(self):
+        """Request a Z-axis stop through the motion worker command queue."""
+        self.motion_worker.stop_all_axes((self.AXIS_CONFIG["Z"]["axis"],))
+
     def start_scan(
         self,
         axis_name,

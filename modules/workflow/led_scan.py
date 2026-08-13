@@ -8,6 +8,10 @@ import time
 from modules.app_runtime import RuntimeStatus, ni_resource
 from modules.daq.device_catalog import selected_device_name
 from modules.workflow.force_hold import ForceHoldConfig, ForceHoldController
+from modules.workflow.force_commissioning import (
+    ForceSafetyConfig,
+    ForceSafetySupervisor,
+)
 from modules.workflow.scan_analysis import build_spatial_scan_analysis
 from utils.log import log
 
@@ -212,6 +216,7 @@ class LedScanWorkflow:
         self._save_bridge = None
         self._save_started_at = 0.0
         self._force_hold = ForceHoldController()
+        self._force_safety = ForceSafetySupervisor()
         self._force_hold_config_snapshot = ForceHoldConfig()
         self._configure_inputs()
         self._connect_inputs()
@@ -452,6 +457,9 @@ class LedScanWorkflow:
             self._t("scan.channels_required"): "scan.channels_required_short",
             self._t("scan.device_required"): "scan.device_required_short",
             self._t("scan.invalid_dimensions"): "scan.invalid_dimensions_short",
+            self._t("scan.force_commissioning_active"): (
+                "scan.force_commissioning_active"
+            ),
         }
         key = fixed_messages.get(message, "scan.not_ready_short")
         return self._t(key)
@@ -462,6 +470,8 @@ class LedScanWorkflow:
 
         if self.recorder.recording:
             blockers.append(self._t("scan.recording_active"))
+        if bool(getattr(self.ui, "forceCommissioningActive", False)):
+            blockers.append(self._t("scan.force_commissioning_active"))
         if self.motion.scan_running:
             blockers.append(self._t("scan.motion_busy"))
         if not self.force.running:
@@ -506,6 +516,13 @@ class LedScanWorkflow:
                     blockers.append(self._t("scan.force_hold_signal"))
                 elif abs(float(target) - float(measured)) > force_hold_config.hard_error_n:
                     blockers.append(self._t("scan.force_hold_initial_error"))
+                else:
+                    safety_config = self._scan_force_safety_config(
+                        force_hold_config,
+                        float(target),
+                    )
+                    if float(measured) >= safety_config.total_high_n:
+                        blockers.append(self._t("scan.force_safety_limit"))
         if plan.triangular_expected:
             warnings.append(self._t("scan.triangular"))
         if plan.samples_per_led < self.MIN_SAMPLES_PER_LED:
@@ -564,13 +581,21 @@ class LedScanWorkflow:
                     target_force_n=self._confirmed_force_n,
                     now=time.perf_counter(),
                 )
+                self._force_safety.arm(
+                    self._scan_force_safety_config(
+                        self._force_hold_config_snapshot,
+                        float(self._confirmed_force_n),
+                    )
+                )
             else:
                 self._force_hold.disarm()
+                self._force_safety.reset()
         except (TypeError, ValueError) as exc:
             if self._force_hold_config_snapshot.enabled:
                 self._fail(self._t("scan.invalid_plan", detail=str(exc)))
                 return
             self._force_hold.disarm()
+            self._force_safety.reset()
         self.state = ScanWorkflowState.RUNNING
         self._progress_origin = None
         self._progress_percent = 0.0
@@ -785,9 +810,57 @@ class LedScanWorkflow:
         self.ui.forceHoldStatus = state
 
     def _on_force_hold_tick(self, sample_clock):
-        if not self._force_hold.snapshot().get("force_hold_armed"):
+        hold_snapshot = self._force_hold.snapshot()
+        if not hold_snapshot.get("force_hold_armed"):
             return
-        measured, force_clock = self._force_snapshot()
+        if not hasattr(self, "_force_safety"):
+            self._force_safety = ForceSafetySupervisor()
+            self._force_safety.arm(
+                self._scan_force_safety_config(
+                    self._force_hold.config,
+                    float(hold_snapshot.get("force_hold_target_n", 0.0)),
+                )
+            )
+        measured, channels, force_clock = self._force_safety_snapshot()
+        safety_decision = self._force_safety.evaluate(
+            measured,
+            channels,
+            force_clock,
+            sample_clock,
+        )
+        if safety_decision.kind == "trip":
+            self._record_force_safety_event(sample_clock, safety_decision)
+            self._stop_force_hold_z()
+            app_config = getattr(self, "config", None)
+            ui = getattr(self, "ui", None)
+            if (
+                bool(getattr(app_config, "force_safety_retract_enabled", False))
+                and bool(getattr(ui, "forceZDirectionVerified", False))
+                and safety_decision.reason
+                in ForceSafetySupervisor.RETRACT_REASONS
+            ):
+                retract = getattr(self.motion, "request_force_hold_retract", None)
+                if callable(retract):
+                    try:
+                        retract(
+                            float(
+                                getattr(
+                                    app_config,
+                                    "force_safety_retract_mm",
+                                    0.002,
+                                )
+                            )
+                        )
+                    except Exception as exc:
+                        log(
+                            f"[Force Hold] controlled retract failed: {exc}",
+                            "error",
+                        )
+            if ui is not None:
+                ui.forceZDirectionVerified = False
+            detail = self._force_safety_reason_text(safety_decision)
+            raise RuntimeError(self._t("scan.force_hold_abort", detail=detail))
+
         if measured is None or force_clock is None:
             decision = self._force_hold.evaluate(
                 float("nan"),
@@ -847,6 +920,74 @@ class LedScanWorkflow:
             z_position_pulse=z_position,
             status=status,
         )
+
+    def _scan_force_safety_config(self, hold_config, target_force_n):
+        app_config = getattr(self, "config", None)
+        configured_total = float(
+            getattr(app_config, "force_safety_total_high_n", 0.0)
+        )
+        total_high = (
+            configured_total
+            if configured_total > 0
+            else float(target_force_n) + float(hold_config.hard_error_n)
+        )
+        return ForceSafetyConfig(
+            total_high_n=total_high,
+            channel_high_n=float(
+                getattr(app_config, "force_safety_channel_high_n", 0.0)
+            ),
+            imbalance_high_n=float(
+                getattr(app_config, "force_safety_imbalance_n", 0.0)
+            ),
+            rise_rate_high_n_s=float(
+                getattr(app_config, "force_safety_rise_rate_n_s", 0.0)
+            ),
+            signal_timeout_s=float(hold_config.signal_timeout_s),
+            imbalance_confirm_s=0.05,
+            rise_rate_confirm_s=0.02,
+        )
+
+    def _force_safety_snapshot(self):
+        force = getattr(self, "force", None)
+        getter = getattr(force, "force_safety_snapshot", None)
+        if callable(getter):
+            config = self._force_hold_config_snapshot
+            return getter(window_s=config.measurement_window_s)
+        measured, sample_time = self._force_snapshot()
+        latest_vals = getattr(force, "latest_vals", None)
+        channels = (
+            tuple(float(value) for value in latest_vals)
+            if latest_vals is not None
+            else ((float(measured),) if measured is not None else ())
+        )
+        return measured, channels, sample_time
+
+    def _record_force_safety_event(self, sample_clock, decision):
+        add_event = getattr(self.recorder, "add_force_hold_event", None)
+        if not callable(add_event):
+            return
+        snapshot = self._force_hold.snapshot()
+        target = float(snapshot.get("force_hold_target_n", 0.0))
+        legacy_reasons = {"stale_signal", "invalid_signal"}
+        status_prefix = "abort" if decision.reason in legacy_reasons else "safety_abort"
+        add_event(
+            source_monotonic=sample_clock,
+            measured_force_n=decision.total_force_n,
+            target_force_n=target,
+            error_n=target - decision.total_force_n,
+            direction=0,
+            step_mm=0.0,
+            accumulated_z_mm=float(
+                snapshot.get("force_hold_accumulated_z_mm", 0.0)
+            ),
+            z_position_pulse=0,
+            status=f"{status_prefix}:{decision.reason}",
+        )
+
+    def _force_safety_reason_text(self, decision):
+        key = f"scan.force_safety_{decision.reason}"
+        translated = self._t(key)
+        return decision.detail if translated == key else translated
 
     def _force_hold_config(self):
         enabled_widget = getattr(self.ui, "forceHoldEnableCheckBox", None)
@@ -1429,6 +1570,7 @@ class LedScanWorkflow:
         self._capture_started = False
         self._abort_requested = False
         self._force_hold.disarm("scan_finished")
+        self._force_safety.reset()
         self.state = ScanWorkflowState.IDLE
         self._set_controls_locked(False)
         self._reset_load_confirmation()

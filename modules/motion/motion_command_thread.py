@@ -5,6 +5,7 @@ from PySide6.QtCore import QThread, Signal
 
 
 class MotionCommandThread(QThread):
+    move_finished = Signal(bool, str)
     scan_started = Signal()
     scan_progress = Signal(object)
     scan_finished = Signal(bool, str)
@@ -163,10 +164,25 @@ class MotionCommandThread(QThread):
             self.scan_finished.emit(False, str(exc))
 
     def _execute_move(self, axis, direction, length_pulse, profile):
-        self.motion.enable_axis(axis)
-        self.motion.move_relative(
-            axis,
-            0 if direction > 0 else 1,
-            length_pulse,
-            profile,
-        )
+        try:
+            state = self.motion.read_axis_state(axis)
+            if state.emergency:
+                raise RuntimeError("Motion controller emergency input is active")
+            if state.run_state != 0:
+                raise RuntimeError("Selected motion axis is already moving")
+            self.motion.enable_axis(axis)
+            result = self.motion.move_relative(
+                axis,
+                0 if direction > 0 else 1,
+                length_pulse,
+                profile,
+            )
+            if result == -1:
+                raise ConnectionError("Motion command failed")
+            self.move_finished.emit(True, "queued move accepted")
+        except Exception as exc:
+            try:
+                self.motion.stop_axis(axis)
+            except Exception:
+                pass
+            self.move_finished.emit(False, str(exc))
