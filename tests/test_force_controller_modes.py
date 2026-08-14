@@ -60,6 +60,7 @@ class DummyForcePlot:
     def __init__(self, *args, **kwargs):
         self.points = []
         self.samples = []
+        self.timed_samples = []
 
     def clear(self):
         self.points.clear()
@@ -69,6 +70,9 @@ class DummyForcePlot:
 
     def add_samples(self, points, sample_rate):
         self.samples.append((list(points), sample_rate))
+
+    def add_timed_samples(self, times, points):
+        self.timed_samples.append((list(times), list(points)))
 
 
 force_plot_module.ForcePlot = DummyForcePlot
@@ -358,6 +362,7 @@ def test_force_control_snapshot_uses_recent_median(monkeypatch):
     controller.start()
     controller.thread.force_output_sample_rate = 100.0
     controller.thread.force_chunk_start_monotonic = 10.0
+    monkeypatch.setattr("modules.force.force_controller.time.perf_counter", lambda: 10.02)
 
     controller._on_analog_force_chunk_from_thread(
         [
@@ -380,6 +385,7 @@ def test_force_safety_snapshot_returns_per_channel_medians(monkeypatch):
     controller.start()
     controller.thread.force_output_sample_rate = 100.0
     controller.thread.force_chunk_start_monotonic = 10.0
+    monkeypatch.setattr("modules.force.force_controller.time.perf_counter", lambda: 10.02)
 
     controller._on_analog_force_chunk_from_thread(
         [
@@ -394,6 +400,43 @@ def test_force_safety_snapshot_returns_per_channel_medians(monkeypatch):
     assert channels == pytest.approx((1.0, 2.0, -1.0, 4.0))
     assert total == pytest.approx(6.0)
     assert sample_time == pytest.approx(10.02)
+
+
+def test_force_control_timestamp_uses_receive_clock_not_future_sample_clock(monkeypatch):
+    DummyThread.created = []
+    monkeypatch.setattr("modules.force.force_controller.AnalogForceThread", DummyThread)
+    monkeypatch.setattr("modules.force.force_controller.time.perf_counter", lambda: 25.0)
+    controller = ForceController(DummyUi(), recorder=DummyRecorder())
+    controller.start()
+    controller.thread.force_output_sample_rate = 100.0
+    controller.thread.force_chunk_start_monotonic = 25.5
+
+    controller._on_analog_force_chunk_from_thread(
+        [[1.0, 1.0, 1.0, 1.0], [2.0, 2.0, 2.0, 2.0]]
+    )
+
+    _total, _channels, sample_time = controller.force_safety_snapshot(window_s=0.05)
+    assert sample_time == pytest.approx(25.0)
+
+
+def test_force_plot_backlog_keeps_more_than_one_ui_refresh_period(monkeypatch):
+    DummyThread.created = []
+    monkeypatch.setattr("modules.force.force_controller.AnalogForceThread", DummyThread)
+    controller = ForceController(DummyUi(), recorder=DummyRecorder())
+    controller.start()
+    controller.running = True
+    controller.thread.force_output_sample_rate = 100.0
+
+    for index in range(60):
+        controller.thread.force_chunk_start_monotonic = 10.0 + index * 0.01
+        controller._on_analog_force_chunk_from_thread([[1.0, 1.0, 1.0, 1.0]])
+
+    controller.update_ui()
+
+    times, totals = controller.plot.timed_samples[-1]
+    assert len(times) == 60
+    assert len(totals) == 60
+    assert times == pytest.approx([index * 0.01 for index in range(60)])
 
 
 def test_force_value_format_keeps_units_readable_for_large_values():

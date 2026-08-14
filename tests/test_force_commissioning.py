@@ -92,6 +92,20 @@ def test_stale_signal_trips_without_requesting_retract_reason():
     assert decision.reason not in ForceSafetySupervisor.RETRACT_REASONS
 
 
+def test_small_cross_clock_future_skew_is_tolerated():
+    decision = _supervisor().evaluate(5.0, [1.25] * 4, 1.015, 1.0)
+
+    assert decision.kind == "ok"
+
+
+def test_large_future_timestamp_still_trips():
+    decision = _supervisor().evaluate(5.0, [1.25] * 4, 1.021, 1.0)
+
+    assert decision.kind == "trip"
+    assert decision.reason == "invalid_timestamp"
+    assert "0.021000 s" in decision.detail
+
+
 def test_commissioning_log_saves_complete_force_row(tmp_path):
     session = ForceCommissioningLog(10.0)
     session.append(

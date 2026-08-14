@@ -241,6 +241,10 @@ class ForceCommissioningDialog(QDialog):
         self.retract_group.setTitle(t("force_commission.retract"))
         self.retract_enabled.setText(t("force_commission.retract_enable"))
         self.retract_distance_label.setText(t("force_commission.retract_distance"))
+        retract_help = t("force_commission.retract_distance_help")
+        self.retract_distance_label.setToolTip(retract_help)
+        self.retract_distance_spin.setToolTip(retract_help)
+        self.z_step_spin.setToolTip(t("force_commission.verify_step_help"))
         self.capture_target_button.setText(t("force_commission.capture_target"))
         self.monitor_button.setText(t("force_commission.monitor"))
         self.verify_button.setText(t("force_commission.verify"))
@@ -275,6 +279,7 @@ class ForceCommissioningDialog(QDialog):
         except ValueError as exc:
             self._show_validation(str(exc))
             return
+        self._save_settings()
         answer = QMessageBox.question(
             self,
             self.translator("force_commission.verify_title"),
@@ -607,8 +612,9 @@ class ForceCommissioningDialog(QDialog):
         self.hold_button.setEnabled(self._direction_verified and not self._active)
         self.verify_button.setEnabled(not self._active)
         self.monitor_button.setEnabled(not self._active)
+        self.retract_enabled.setEnabled(not self._active)
         self.retract_distance_spin.setEnabled(
-            self.retract_enabled.isChecked() and self._direction_verified
+            self.retract_enabled.isChecked() and not self._active
         )
         self.stop_button.setEnabled(self._active)
 

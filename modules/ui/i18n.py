@@ -44,6 +44,14 @@ TRANSLATIONS = {
         "force_commission.retract": "Controlled Retract",
         "force_commission.retract_enable": "Retract on a verified high-force trip",
         "force_commission.retract_distance": "Z- retract distance",
+        "force_commission.retract_distance_help": (
+            "Editable before direction verification. This distance is used only for a "
+            "controlled Z- retract after a verified high-force trip."
+        ),
+        "force_commission.verify_step_help": (
+            "Verify Z+ uses this correction step, capped at 0.0005 mm; it does not use "
+            "the retract distance."
+        ),
         "force_commission.capture_target": "Capture Target",
         "force_commission.monitor": "Monitor Only",
         "force_commission.verify": "Verify Z+",
@@ -430,6 +438,12 @@ TRANSLATIONS = {
         "force_commission.retract": "受控回撤",
         "force_commission.retract_enable": "验证方向后，高力触发时自动回撤",
         "force_commission.retract_distance": "Z- 回撤距离",
+        "force_commission.retract_distance_help": (
+            "方向验证前即可编辑；此距离仅用于验证方向后的高力保护 Z- 回撤。"
+        ),
+        "force_commission.verify_step_help": (
+            "验证 Z+ 使用此修正步长，且最大限制为 0.0005 mm；不会使用回撤距离。"
+        ),
         "force_commission.capture_target": "采集目标值",
         "force_commission.monitor": "仅监测",
         "force_commission.verify": "验证 Z+",

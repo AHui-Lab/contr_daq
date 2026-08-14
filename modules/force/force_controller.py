@@ -67,6 +67,7 @@ class ForceController:
     ANALOG_MEDIAN_WINDOW = 3
     ANALOG_AVERAGE_WINDOW_MS = 5
     ANALOG_READ_INTERVAL_S = 0.010
+    ANALOG_PLOT_BACKLOG_S = 12.0
 
     def __init__(self, ui, recorder=None, config=None, runtime=None, resources=None, translator=None):
         self.ui = ui
@@ -89,7 +90,12 @@ class ForceController:
         self._force_control_buffer = deque(maxlen=400)
         self._force_channel_control_buffer = deque(maxlen=400)
         self._state_lock = Lock()
-        self._pending_force_plot_rows = deque(maxlen=24)
+        self._pending_force_plot_rows = deque(
+            maxlen=max(
+                24,
+                int(round(self.ANALOG_PLOT_BACKLOG_S / self.ANALOG_READ_INTERVAL_S)),
+            )
+        )
         self._force_display_sample_index = 0
         self._force_device_catalog = {}
         sample_rate_widget = getattr(self.ui, "forceSampleRateSpinBox", None)
@@ -502,6 +508,7 @@ class ForceController:
         if force_rows.ndim == 1:
             force_rows = force_rows.reshape(1, -1)
 
+        received_at = time.perf_counter()
         latest = force_rows[-1]
         source_start, output_rate = self._analog_chunk_timing(len(force_rows))
         with self._state_lock:
@@ -522,7 +529,10 @@ class ForceController:
             self.latest_vals = latest_corrected
             self.latest_force = float(np.sum(latest_corrected))
             corrected_totals = np.sum(corrected_rows, axis=1)
-            sample_times = source_start + np.arange(row_count) / output_rate
+            control_start = (
+                received_at - max(row_count - 1, 0) / output_rate
+            )
+            sample_times = control_start + np.arange(row_count) / output_rate
             self._force_control_buffer.extend(
                 (float(sample_time), float(total))
                 for sample_time, total in zip(sample_times, corrected_totals)

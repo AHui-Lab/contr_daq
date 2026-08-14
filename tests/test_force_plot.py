@@ -2,6 +2,7 @@ import sys
 import types
 import importlib
 
+import numpy as np
 import pytest
 from modules.ui.i18n import Translator
 
@@ -9,9 +10,11 @@ from modules.ui.i18n import Translator
 class DummyCurve:
     def __init__(self):
         self.data_calls = []
+        self.data_kwargs = []
 
-    def setData(self, x, y):
+    def setData(self, x, y, **kwargs):
         self.data_calls.append((list(x), list(y)))
+        self.data_kwargs.append(kwargs)
 
     def clear(self):
         self.data_calls.append(([], []))
@@ -102,6 +105,18 @@ def test_add_timed_samples_preserves_explicit_time_axis():
     x, y = DummyPlotWidget.last_curve.data_calls[-1]
     assert x == pytest.approx([0.0, 1.0, 2.0, 5.0, 6.0])
     assert y == pytest.approx([10.0, 20.0, 30.0, 40.0, 50.0])
+
+
+def test_add_timed_samples_breaks_the_curve_across_missing_data():
+    plot = ForcePlot(DummyParent(), time_window=10.0)
+
+    plot.add_timed_samples([0.00, 0.01, 0.02], [10.0, 20.0, 30.0])
+    plot.add_timed_samples([0.10, 0.11], [40.0, 50.0])
+
+    x, y = DummyPlotWidget.last_curve.data_calls[-1]
+    gap_index = next(index for index, value in enumerate(y) if np.isnan(value))
+    assert x[gap_index] == pytest.approx(0.03)
+    assert DummyPlotWidget.last_curve.data_kwargs[-1]["connect"] == "finite"
 
 
 def test_force_plot_retranslates_axis_labels():

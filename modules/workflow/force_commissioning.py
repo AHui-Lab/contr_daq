@@ -49,6 +49,7 @@ class ForceSafetyDecision:
 class ForceSafetySupervisor:
     """Stateful, controller-independent force signal safety supervisor."""
 
+    FUTURE_TIMESTAMP_TOLERANCE_S = 0.02
     RETRACT_REASONS = frozenset(
         {"total_force_high", "channel_force_high", "force_rise_rate_high"}
     )
@@ -107,13 +108,16 @@ class ForceSafetySupervisor:
                 return self._decision(
                     "trip", "invalid_signal", total, channels, detail="Force signal is invalid"
                 )
-            if sample_time > now + 1e-6:
+            if sample_time > now + self.FUTURE_TIMESTAMP_TOLERANCE_S:
                 return self._decision(
                     "trip",
                     "invalid_timestamp",
                     total,
                     channels,
-                    detail="Force sample timestamp is ahead of the control clock",
+                    detail=(
+                        "Force sample timestamp is ahead of the control clock by "
+                        f"{sample_time - now:.6f} s"
+                    ),
                 )
             if now - sample_time > config.signal_timeout_s:
                 return self._decision(
