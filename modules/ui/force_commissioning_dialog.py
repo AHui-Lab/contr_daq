@@ -30,7 +30,7 @@ class ForceCommissioningDialog(QDialog):
     """Deliberately separate, safety-first force-loop commissioning workspace."""
 
     UPDATE_INTERVAL_MS = 20
-    DIRECTION_TEST_MAX_STEP_MM = 0.0005
+    DIRECTION_TEST_SETTLE_MS = 700
 
     def __init__(
         self,
@@ -55,6 +55,7 @@ class ForceCommissioningDialog(QDialog):
         self._direction_verified = False
         self._verification_pending = False
         self._verification_before_n = None
+        self._verification_step_mm = 0.0
         self._move_pending_until = 0.0
         self._last_logged_sample_time = None
         self._session_log = None
@@ -139,6 +140,19 @@ class ForceCommissioningDialog(QDialog):
         middle.addWidget(self.control_group, 1)
         root.addLayout(middle)
 
+        self.verify_group = QGroupBox()
+        verify_form = QFormLayout(self.verify_group)
+        self.verify_distance_spin = self._force_spin(
+            0.0001, 0.01, 0.0005, " mm", 4
+        )
+        self.verify_delta_spin = self._force_spin(
+            0.1, 1000.0, 0.1, " N", 1
+        )
+        self.verify_distance_label = QLabel()
+        self.verify_delta_label = QLabel()
+        verify_form.addRow(self.verify_distance_label, self.verify_distance_spin)
+        verify_form.addRow(self.verify_delta_label, self.verify_delta_spin)
+
         self.retract_group = QGroupBox()
         retract_form = QFormLayout(self.retract_group)
         self.retract_enabled = QCheckBox()
@@ -148,7 +162,10 @@ class ForceCommissioningDialog(QDialog):
         self.retract_distance_label = QLabel()
         retract_form.addRow(self.retract_enabled)
         retract_form.addRow(self.retract_distance_label, self.retract_distance_spin)
-        root.addWidget(self.retract_group)
+        verification_row = QHBoxLayout()
+        verification_row.addWidget(self.verify_group, 1)
+        verification_row.addWidget(self.retract_group, 1)
+        root.addLayout(verification_row)
 
         action_grid = QGridLayout()
         self.capture_target_button = QPushButton()
@@ -209,6 +226,10 @@ class ForceCommissioningDialog(QDialog):
         self.retract_distance_spin.setValue(self.config.force_safety_retract_mm)
         self.tolerance_spin.setValue(self.config.force_commission_tolerance_n)
         self.z_step_spin.setValue(self.config.force_commission_z_step_mm)
+        self.verify_distance_spin.setValue(
+            self.config.force_commission_verify_distance_mm
+        )
+        self.verify_delta_spin.setValue(self.config.force_commission_verify_delta_n)
         self.interval_spin.setValue(
             self.config.force_commission_control_interval_s
         )
@@ -238,13 +259,20 @@ class ForceCommissioningDialog(QDialog):
         self.interval_label.setText(t("force_commission.interval"))
         self.confirm_label.setText(t("force_commission.confirm"))
         self.max_offset_label.setText(t("force_commission.max_offset"))
+        self.verify_group.setTitle(t("force_commission.verify_group"))
+        self.verify_distance_label.setText(t("force_commission.verify_distance"))
+        self.verify_delta_label.setText(t("force_commission.verify_delta"))
+        self.verify_distance_spin.setToolTip(
+            t("force_commission.verify_distance_help")
+        )
+        self.verify_delta_spin.setToolTip(t("force_commission.verify_delta_help"))
         self.retract_group.setTitle(t("force_commission.retract"))
         self.retract_enabled.setText(t("force_commission.retract_enable"))
         self.retract_distance_label.setText(t("force_commission.retract_distance"))
         retract_help = t("force_commission.retract_distance_help")
         self.retract_distance_label.setToolTip(retract_help)
         self.retract_distance_spin.setToolTip(retract_help)
-        self.z_step_spin.setToolTip(t("force_commission.verify_step_help"))
+        self.z_step_spin.setToolTip(t("force_commission.z_step_help"))
         self.capture_target_button.setText(t("force_commission.capture_target"))
         self.monitor_button.setText(t("force_commission.monitor"))
         self.verify_button.setText(t("force_commission.verify"))
@@ -283,7 +311,11 @@ class ForceCommissioningDialog(QDialog):
         answer = QMessageBox.question(
             self,
             self.translator("force_commission.verify_title"),
-            self.translator("force_commission.verify_prompt"),
+            self.translator(
+                "force_commission.verify_prompt",
+                distance=self.verify_distance_spin.value(),
+                threshold=self.verify_delta_spin.value(),
+            ),
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No,
         )
@@ -297,15 +329,17 @@ class ForceCommissioningDialog(QDialog):
         self._verification_pending = True
         self._mode = "direction_test"
         self._set_commission_active(True)
-        step = min(self.z_step_spin.value(), self.DIRECTION_TEST_MAX_STEP_MM)
+        step = self.verify_distance_spin.value()
+        self._verification_step_mm = step
         try:
             self.motion.queue_force_hold_z_step(+1, step)
         except Exception as exc:
             self._finish_session("direction_test_failed", str(exc))
             return
-        self._move_pending_until = time.perf_counter() + 0.5
+        settle_s = self.DIRECTION_TEST_SETTLE_MS / 1000.0
+        self._move_pending_until = time.perf_counter() + settle_s
         self._set_status("force_commission.verifying")
-        QTimer.singleShot(500, self._finish_direction_test)
+        QTimer.singleShot(self.DIRECTION_TEST_SETTLE_MS, self._finish_direction_test)
 
     def start_static_hold(self):
         if not self._direction_verified:
@@ -465,12 +499,12 @@ class ForceCommissioningDialog(QDialog):
             return
         self._verification_pending = False
         total, _channels, _sample_time = self._snapshot()
-        step = min(self.z_step_spin.value(), self.DIRECTION_TEST_MAX_STEP_MM)
+        step = self._verification_step_mm
         if total is None:
             self._finish_session("direction_test_failed", "No force signal")
             return
         delta = float(total) - float(self._verification_before_n)
-        threshold = max(0.02, self.tolerance_spin.value() * 0.25)
+        threshold = self.verify_delta_spin.value()
         verified = delta >= threshold
         self._set_direction_verified(verified)
         try:
@@ -483,6 +517,7 @@ class ForceCommissioningDialog(QDialog):
             if verified
             else "force_commission.verify_failed",
             delta=delta,
+            threshold=threshold,
         )
         self._finish_session("direction_verified" if verified else "direction_failed", detail)
 
@@ -513,6 +548,7 @@ class ForceCommissioningDialog(QDialog):
 
     def _finish_session(self, status, detail=""):
         self._verification_pending = False
+        self._verification_step_mm = 0.0
         self._hold.disarm(str(status))
         self._mode = "idle"
         self._set_commission_active(False)
@@ -576,6 +612,10 @@ class ForceCommissioningDialog(QDialog):
         self.config.force_safety_retract_mm = self.retract_distance_spin.value()
         self.config.force_commission_tolerance_n = self.tolerance_spin.value()
         self.config.force_commission_z_step_mm = self.z_step_spin.value()
+        self.config.force_commission_verify_distance_mm = (
+            self.verify_distance_spin.value()
+        )
+        self.config.force_commission_verify_delta_n = self.verify_delta_spin.value()
         self.config.force_commission_control_interval_s = self.interval_spin.value()
         self.config.force_commission_confirm_s = self.confirm_spin.value()
         self.config.force_commission_max_offset_mm = self.max_offset_spin.value()
@@ -616,6 +656,8 @@ class ForceCommissioningDialog(QDialog):
         self.retract_distance_spin.setEnabled(
             self.retract_enabled.isChecked() and not self._active
         )
+        self.verify_distance_spin.setEnabled(not self._active)
+        self.verify_delta_spin.setEnabled(not self._active)
         self.stop_button.setEnabled(self._active)
 
     def _on_move_command_result(self, ok, detail):

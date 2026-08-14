@@ -38,6 +38,10 @@ TRANSLATIONS = {
         "force_commission.target": "Target force",
         "force_commission.tolerance": "Tolerance",
         "force_commission.z_step": "Z correction step",
+        "force_commission.z_step_help": (
+            "Small correction used by Static Hold. It is independent of the Z+ "
+            "verification distance."
+        ),
         "force_commission.interval": "Control interval",
         "force_commission.confirm": "Error confirmation",
         "force_commission.max_offset": "Maximum Z offset",
@@ -48,9 +52,16 @@ TRANSLATIONS = {
             "Editable before direction verification. This distance is used only for a "
             "controlled Z- retract after a verified high-force trip."
         ),
-        "force_commission.verify_step_help": (
-            "Verify Z+ uses this correction step, capped at 0.0005 mm; it does not use "
-            "the retract distance."
+        "force_commission.verify_group": "Z+ Direction Verification",
+        "force_commission.verify_distance": "Z+ verification distance",
+        "force_commission.verify_delta": "Minimum force increase",
+        "force_commission.verify_distance_help": (
+            "Independent test move used only by Verify Z+. Adjustable from 0.0001 to "
+            "0.0100 mm; the same distance is queued in Z- after measurement."
+        ),
+        "force_commission.verify_delta_help": (
+            "Required total-force increase for passing Verify Z+. With 0.1 N sensor "
+            "resolution, use at least 0.2 N (two resolution counts)."
         ),
         "force_commission.capture_target": "Capture Target",
         "force_commission.monitor": "Monitor Only",
@@ -72,12 +83,14 @@ TRANSLATIONS = {
         "force_commission.target_captured": "Current total force captured as the target.",
         "force_commission.verify_title": "Confirm Z+ Direction Test",
         "force_commission.verify_prompt": (
-            "A very small Z+ move will be applied and then reversed. Use a dummy specimen, "
-            "keep a hand on the hardware emergency stop, and confirm that clearance is safe."
+            "A Z+ move of {distance:.4f} mm will be applied and then reversed. Verification "
+            "requires a total-force increase of at least {threshold:.1f} N. Use a dummy "
+            "specimen, keep a hand on the hardware emergency stop, and confirm that "
+            "clearance is safe."
         ),
         "force_commission.verifying": "Applying the Z+ test step and measuring the force response...",
-        "force_commission.verify_passed": "Z+ increased force by {delta:.3f} N; direction verified.",
-        "force_commission.verify_failed": "Z+ force change was {delta:.3f} N; direction remains locked.",
+        "force_commission.verify_passed": "Z+ increased force by {delta:.3f} N (required {threshold:.1f} N); direction verified.",
+        "force_commission.verify_failed": "Z+ force change was {delta:.3f} N (required {threshold:.1f} N); increase the safe verification distance if needed.",
         "force_commission.stopped": "Commissioning session stopped.",
         "force_commission.emergency_stopped": "Emergency stop requested; direction verification cleared.",
         "force_commission.invalid_title": "Invalid Safety Configuration",
@@ -432,6 +445,9 @@ TRANSLATIONS = {
         "force_commission.target": "目标力",
         "force_commission.tolerance": "力容差",
         "force_commission.z_step": "Z 轴修正步长",
+        "force_commission.z_step_help": (
+            "静态保持使用的小幅修正位移，与 Z+ 验证距离相互独立。"
+        ),
         "force_commission.interval": "控制间隔",
         "force_commission.confirm": "误差确认时间",
         "force_commission.max_offset": "最大 Z 偏移",
@@ -441,8 +457,16 @@ TRANSLATIONS = {
         "force_commission.retract_distance_help": (
             "方向验证前即可编辑；此距离仅用于验证方向后的高力保护 Z- 回撤。"
         ),
-        "force_commission.verify_step_help": (
-            "验证 Z+ 使用此修正步长，且最大限制为 0.0005 mm；不会使用回撤距离。"
+        "force_commission.verify_group": "Z+ 方向验证",
+        "force_commission.verify_distance": "Z+ 验证距离",
+        "force_commission.verify_delta": "最小增力值",
+        "force_commission.verify_distance_help": (
+            "仅供“验证 Z+”使用的独立测试位移，可在 0.0001～0.0100 mm 范围内设置；"
+            "测量完成后会排队执行相同距离的 Z- 返回。"
+        ),
+        "force_commission.verify_delta_help": (
+            "验证通过所需的总力最小增量。传感器分辨率为 0.1 N 时，建议至少设置 "
+            "0.2 N（两个分辨单位）。"
         ),
         "force_commission.capture_target": "采集目标值",
         "force_commission.monitor": "仅监测",
@@ -464,12 +488,13 @@ TRANSLATIONS = {
         "force_commission.target_captured": "已将当前总力设为目标值。",
         "force_commission.verify_title": "确认 Z+ 方向测试",
         "force_commission.verify_prompt": (
-            "软件将执行一次极小的 Z+ 位移并随后反向返回。请使用替代样片，确认安全间隙，"
-            "并随时准备按下硬件急停。"
+            "软件将执行 {distance:.4f} mm 的 Z+ 位移并随后反向返回；总力至少增加 "
+            "{threshold:.1f} N 才能通过验证。请使用替代样片，确认安全间隙，并随时准备"
+            "按下硬件急停。"
         ),
         "force_commission.verifying": "正在执行 Z+ 测试步并测量力变化...",
-        "force_commission.verify_passed": "Z+ 使力增加 {delta:.3f} N，方向验证通过。",
-        "force_commission.verify_failed": "Z+ 后力变化为 {delta:.3f} N，方向仍保持锁定。",
+        "force_commission.verify_passed": "Z+ 使力增加 {delta:.3f} N（要求 {threshold:.1f} N），方向验证通过。",
+        "force_commission.verify_failed": "Z+ 后力变化为 {delta:.3f} N（要求 {threshold:.1f} N）；如安全条件允许，请增大验证距离。",
         "force_commission.stopped": "力闭环调试已停止。",
         "force_commission.emergency_stopped": "已请求急停，并清除方向验证状态。",
         "force_commission.invalid_title": "安全参数无效",

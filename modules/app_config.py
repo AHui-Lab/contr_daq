@@ -26,6 +26,8 @@ class AppConfig:
     force_safety_retract_mm: float = 0.002
     force_commission_tolerance_n: float = 0.2
     force_commission_z_step_mm: float = 0.0001
+    force_commission_verify_distance_mm: float = 0.002
+    force_commission_verify_delta_n: float = 0.2
     force_commission_control_interval_s: float = 0.15
     force_commission_confirm_s: float = 0.05
     force_commission_max_offset_mm: float = 0.01
@@ -68,6 +70,13 @@ class AppConfig:
         self.force_commission_z_step_mm = min(
             max(float(self.force_commission_z_step_mm), 0.0001),
             0.01,
+        )
+        self.force_commission_verify_distance_mm = min(
+            max(float(self.force_commission_verify_distance_mm), 0.0001),
+            0.01,
+        )
+        self.force_commission_verify_delta_n = max(
+            float(self.force_commission_verify_delta_n), 0.1
         )
         self.force_commission_control_interval_s = max(
             float(self.force_commission_control_interval_s), 0.02
