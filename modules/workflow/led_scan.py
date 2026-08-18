@@ -1,0 +1,1934 @@
+from dataclasses import asdict, dataclass
+from datetime import datetime
+from enum import Enum
+from math import isfinite
+from pathlib import Path
+import time
+
+from modules.app_runtime import RuntimeStatus, ni_resource
+from modules.daq.device_catalog import selected_device_name
+from modules.workflow.force_hold import ForceHoldConfig, ForceHoldController
+from modules.workflow.force_commissioning import (
+    ForceSafetyConfig,
+    ForceSafetySupervisor,
+)
+from modules.workflow.scan_analysis import build_spatial_scan_analysis
+from utils.log import log
+
+
+class ScanWorkflowState(str, Enum):
+    IDLE = "idle"
+    PREPARING = "preparing"
+    RUNNING = "running"
+    SAVING = "saving"
+
+
+@dataclass(frozen=True)
+class ScanPlan:
+    axis: str
+    direction: int
+    led_count: int
+    led_size_mm: float
+    distance_mm: float
+    speed_mm_s: float
+    sample_rate_hz: int
+    samples_per_led: float
+    ramp_distance_mm: float
+    constant_speed_distance_mm: float
+    triangular_expected: bool
+    motion_telemetry_interval_ms: int
+    estimated_motion_samples_per_led: float
+
+    @classmethod
+    def build(
+        cls,
+        axis,
+        direction,
+        led_count,
+        led_size_mm,
+        speed_mm_s,
+        sample_rate_hz,
+        profile,
+        pulses_per_mm,
+    ):
+        if float(speed_mm_s) <= 0:
+            raise ValueError("Scan speed must be greater than zero")
+        distance_mm = int(led_count) * float(led_size_mm)
+        target_speed = profile.vt / pulses_per_mm
+        start_speed = profile.vo / pulses_per_mm
+        ramp_time_s = (profile.acc_time + profile.dec_time) / 1000.0
+        ramp_distance = (start_speed + target_speed) * ramp_time_s / 2.0
+        constant_distance = max(0.0, distance_mm - ramp_distance)
+        led_traversal_ms = (
+            float(led_size_mm) / float(speed_mm_s) * 1000.0
+        )
+        telemetry_interval_ms = max(
+            2,
+            min(10, max(1, int(led_traversal_ms / 4.0))),
+        )
+        return cls(
+            axis=str(axis),
+            direction=1 if int(direction) >= 0 else -1,
+            led_count=int(led_count),
+            led_size_mm=float(led_size_mm),
+            distance_mm=distance_mm,
+            speed_mm_s=float(speed_mm_s),
+            sample_rate_hz=int(sample_rate_hz),
+            samples_per_led=(
+                float(sample_rate_hz) * float(led_size_mm) / float(speed_mm_s)
+            ),
+            ramp_distance_mm=ramp_distance,
+            constant_speed_distance_mm=constant_distance,
+            triangular_expected=constant_distance <= 0.0,
+            motion_telemetry_interval_ms=telemetry_interval_ms,
+            estimated_motion_samples_per_led=(
+                led_traversal_ms / telemetry_interval_ms
+            ),
+        )
+
+
+@dataclass(frozen=True)
+class ScanReadiness:
+    blockers: tuple[str, ...] = ()
+    warnings: tuple[str, ...] = ()
+
+    @property
+    def can_start(self) -> bool:
+        return not self.blockers
+
+
+@dataclass(frozen=True)
+class ScanResult:
+    outcome: str
+    group_id: int
+    file_count: int
+    save_dir: str
+    paths: dict[str, str]
+    led_bins_covered: int = 0
+    led_bins_expected: int = 0
+    minimum_samples_per_led: int = 0
+    maximum_samples_per_led: int = 0
+    constant_speed_fraction: float = 0.0
+    capture_duration_s: float = 0.0
+    scan_id: str = ""
+    operator_name: str = ""
+    missing_streams: tuple[str, ...] = ()
+    detail: str = ""
+    force_hold_enabled: bool = False
+    force_hold_fast_response: bool = False
+    force_hold_derivative_interval_s: float = 0.0
+    force_hold_derivative_deadband_n_s: float = 0.0
+    force_hold_target_n: float = 0.0
+    force_hold_correction_count: int = 0
+    force_hold_offset_mm: float = 0.0
+
+
+class LedScanWorkflow:
+    MIN_SAMPLES_PER_LED = 20.0
+    MIN_MOTION_SAMPLES_PER_LED = 2.0
+    PREPARE_TIMEOUT_S = 6.0
+    EXPECTED_STREAMS = ("daq", "force")
+    ACTIVE_PHASES = {
+        ScanWorkflowState.PREPARING,
+        ScanWorkflowState.RUNNING,
+        ScanWorkflowState.SAVING,
+    }
+    INTERLOCK_WIDGETS = (
+        "Axis_choice",
+        "direction_choice",
+        "Circle_times",
+        "Gap_time",
+        "Speed_Setting_val",
+        "sampleRateSpinBox",
+        "daqDeviceComboBox",
+        "startStopButton",
+        "recorderStartButton",
+        "recorderStopButton",
+        "aoChannelComboBox",
+        "aoVoltageSpinBox",
+        "aoControlButton",
+        "ivModeComboBox",
+        "ivStartSpinBox",
+        "ivStopSpinBox",
+        "ivStepSpinBox",
+        "ivRepeatSpinBox",
+        "ivControlButton",
+        "forceModeComboBox",
+        "forceDeviceComboBox",
+        "forceSampleRateSpinBox",
+        "forceTerminalConfigComboBox",
+        "forceVoltageRangeComboBox",
+        "forceFullScaleSpinBox",
+        "forceStartButton",
+        "forceZeroButton",
+        "forceHoldEnableCheckBox",
+        "forceHoldIntervalSpinBox",
+        "forceHoldToleranceSpinBox",
+        "forceHoldStepSpinBox",
+        "scanLoadConfirmButton",
+        "distanceSpinBox",
+        "xPosButton",
+        "xNegButton",
+        "yPosButton",
+        "yNegButton",
+        "zPosButton",
+        "zNegButton",
+        "RPosButton",
+        "RNegButton",
+        "Forward_circle",
+        "Backward_circle",
+    )
+
+    def __init__(
+        self,
+        ui,
+        motion_controller,
+        daq_controller,
+        force_controller,
+        recorder,
+        config,
+        runtime=None,
+        translator=None,
+        on_config_saved=None,
+    ):
+        self.ui = ui
+        self.motion = motion_controller
+        self.daq = daq_controller
+        self.force = force_controller
+        self.recorder = recorder
+        self.config = config
+        self.runtime = runtime
+        self.translator = translator
+        self.on_config_saved = on_config_saved
+        self.state = ScanWorkflowState.IDLE
+        self._prepare_deadline = 0.0
+        self._started_daq = False
+        self._active_plan = None
+        self._control_enabled_snapshot = {}
+        self._controls_locked = False
+        self._progress_origin = None
+        self._progress_percent = 0.0
+        self._last_progress_update = 0.0
+        self._capture_started = False
+        self._abort_requested = False
+        self._last_result = None
+        self._last_failure = None
+        self._last_preflight = ScanReadiness()
+        self._confirmed_force_n = None
+        self._load_confirmed_at = ""
+        self._save_worker = None
+        self._save_bridge = None
+        self._save_started_at = 0.0
+        self._force_hold = ForceHoldController()
+        self._force_safety = ForceSafetySupervisor()
+        self._force_hold_config_snapshot = ForceHoldConfig()
+        self._configure_inputs()
+        self._connect_inputs()
+        self.update_preview()
+
+    @property
+    def running(self):
+        return self.state is not ScanWorkflowState.IDLE
+
+    def retranslate_ui(self):
+        for widget_name, key in (
+            ("forceHoldEnableCheckBox", "force_hold.enable"),
+            ("forceHoldIntervalLabel", "force_hold.interval"),
+            ("forceHoldToleranceLabel", "force_hold.tolerance"),
+            ("forceHoldStepLabel", "force_hold.z_step"),
+        ):
+            widget = getattr(self.ui, widget_name, None)
+            if widget is not None and hasattr(widget, "setText"):
+                widget.setText(self._t(key))
+        checkbox = getattr(self.ui, "forceHoldEnableCheckBox", None)
+        if checkbox is not None and hasattr(checkbox, "setToolTip"):
+            checkbox.setToolTip(self._t("force_hold.tooltip"))
+        interval = getattr(self.ui, "forceHoldIntervalSpinBox", None)
+        if interval is not None and hasattr(interval, "setToolTip"):
+            interval.setToolTip(self._t("force_hold.interval_tooltip"))
+        deadband = getattr(self.ui, "forceHoldToleranceSpinBox", None)
+        if deadband is not None and hasattr(deadband, "setToolTip"):
+            deadband.setToolTip(self._t("force_hold.deadband_tooltip"))
+        if self.state is ScanWorkflowState.PREPARING:
+            self._set_feedback(self._t("scan.preparing"), warning=False)
+        elif self.state is ScanWorkflowState.RUNNING:
+            self._show_running_progress()
+        elif self.state is ScanWorkflowState.SAVING:
+            self._show_saving_progress()
+        elif self._last_result is not None:
+            self._show_result(self._last_result)
+        else:
+            self._last_failure = None
+            self._set_runtime_scan(RuntimeStatus.READY)
+            self.refresh_readiness(preserve_result=False)
+        self._update_action_text()
+
+    def toggle_scan(self):
+        if self.state is ScanWorkflowState.PREPARING:
+            self._fail(
+                self._t("scan.cancelled_preparation"),
+                runtime_status=RuntimeStatus.WARNING,
+            )
+            return
+        if self.state is ScanWorkflowState.RUNNING:
+            self.motion.emergency_stop()
+            return
+        if self.state is ScanWorkflowState.SAVING:
+            return
+        self.start_scan()
+
+    def wait_for_save(self):
+        worker = getattr(self, "_save_worker", None)
+        if worker is not None and worker.isRunning():
+            worker.wait()
+
+    def start_scan(self):
+        if self.running:
+            return
+
+        self._started_daq = False
+        self._active_plan = None
+        try:
+            plan = self.current_plan()
+        except (KeyError, TypeError, ValueError, ZeroDivisionError) as exc:
+            self._reject_start(self._t("scan.invalid_plan", detail=str(exc)))
+            return
+
+        readiness = self._evaluate_readiness(plan)
+        self._last_preflight = readiness
+        if not readiness.can_start:
+            self._reject_start(readiness.blockers[0])
+            return
+
+        try:
+            save_dir = getattr(self.config, "data_save_dir", "data")
+            set_save_dir = getattr(self.recorder, "set_save_dir", None)
+            if set_save_dir is not None and not set_save_dir(save_dir):
+                self._reject_start(self._t("scan.recording_active"))
+                return
+        except OSError as exc:
+            self._reject_start(
+                self._t("scan.output_dir_unavailable", detail=str(exc))
+            )
+            return
+
+        self._last_result = None
+        self._last_failure = None
+        self._active_plan = plan
+        self._force_hold_config_snapshot = self._force_hold_config()
+        self._capture_started = False
+        self._abort_requested = False
+        self.state = ScanWorkflowState.PREPARING
+        self._started_daq = self.daq.thread is None
+        self._set_controls_locked(True)
+        self._set_phase("preparing")
+        self._set_feedback(self._t("scan.preparing"), warning=False)
+        self._update_action_text()
+        self._set_runtime_scan(RuntimeStatus.CONNECTING, "preparing")
+
+        if self.daq.thread is None:
+            self.daq.start()
+            if self.daq.thread is None:
+                self._fail(self._t("scan.daq_start_failed"))
+                return
+        self._prepare_deadline = time.perf_counter() + self.PREPARE_TIMEOUT_S
+        self._single_shot(30, self._poll_prepare)
+
+    def current_plan(self):
+        axis = self.ui.Axis_choice.currentText()
+        direction = self._direction()
+        led_count = self.ui.Circle_times.value()
+        led_size = self.ui.Gap_time.value()
+        speed = self.motion._clamp_speed_mm_s(self.ui.Speed_Setting_val.value())
+        sample_rate = self.ui.sampleRateSpinBox.value()
+        config = self.motion.AXIS_CONFIG[axis]
+        profile = self.motion._build_motion_profile(
+            speed_mm_s=speed,
+            pulses_per_mm=config["pulses_per_mm"],
+            accel_mm_s2=config["accel_mm_s2"],
+        )
+        return ScanPlan.build(
+            axis=axis,
+            direction=direction,
+            led_count=led_count,
+            led_size_mm=led_size,
+            speed_mm_s=speed,
+            sample_rate_hz=sample_rate,
+            profile=profile,
+            pulses_per_mm=config["pulses_per_mm"],
+        )
+
+    def update_preview(self, *_args):
+        if self.running:
+            return
+        self._last_result = None
+        self._last_failure = None
+        self.ui.scanQualityLabel.setToolTip("")
+        self._set_runtime_scan(RuntimeStatus.READY)
+        self.refresh_readiness(preserve_result=False)
+
+    def refresh_readiness(self, preserve_result=True):
+        if self.running:
+            self._monitor_active_streams()
+            return self._last_preflight
+
+        try:
+            plan = self.current_plan()
+            self.ui.distanceSpinBox_2.setValue(plan.distance_mm)
+            readiness = self._evaluate_readiness(plan)
+            configured = bool(
+                plan.distance_mm > 0
+                and plan.led_count > 0
+                and self._selected_daq_channels()
+                and self._daq_device_name()
+            )
+        except (KeyError, TypeError, ValueError, ZeroDivisionError) as exc:
+            plan = None
+            readiness = ScanReadiness(
+                blockers=(self._t("scan.invalid_plan", detail=str(exc)),)
+            )
+            configured = False
+
+        self._last_preflight = readiness
+        force_ready = bool(
+            self.force.running and self.force.latest_vals is not None
+        )
+        confirm_button = getattr(self.ui, "scanLoadConfirmButton", None)
+        if confirm_button is not None:
+            if not force_ready and confirm_button.isChecked():
+                confirm_button.setChecked(False)
+            confirm_button.setEnabled(force_ready)
+        load_confirmed = bool(force_ready and self._load_confirmed())
+        self.ui.scanPlanConfigured = configured
+        self.ui.scanForceReady = force_ready
+        self.ui.scanLoadConfirmed = load_confirmed
+        self.ui.scanPreflightReady = readiness.can_start
+        self.ui.scanPreflightWarning = bool(readiness.warnings)
+        self.ui.Forward_circle.setEnabled(readiness.can_start)
+        tooltip_lines = [*readiness.blockers, *readiness.warnings]
+        self.ui.Forward_circle.setToolTip("\n".join(tooltip_lines))
+        self.ui.scanQualityLabel.setToolTip("\n".join(tooltip_lines))
+        self._update_force_hold_status()
+
+        if preserve_result and self._last_result is not None:
+            self._show_result(self._last_result)
+            return readiness
+        if preserve_result and self._last_failure:
+            self._set_phase("error")
+            self._set_feedback(self._last_failure, warning=True)
+            return readiness
+
+        self._set_phase("idle")
+        if readiness.blockers:
+            self._set_feedback(
+                self._short_blocker_text(readiness.blockers[0]),
+                warning=True,
+                summary=readiness.blockers[0],
+            )
+        elif readiness.warnings:
+            if plan is not None and plan.triangular_expected:
+                short_warning = self._t("scan.triangular_short")
+            elif (
+                plan is not None
+                and plan.samples_per_led < self.MIN_SAMPLES_PER_LED
+            ):
+                short_warning = self._t("scan.low_resolution_short")
+            else:
+                short_warning = self._t("scan.low_motion_resolution_short")
+            self._set_feedback(
+                short_warning,
+                warning=True,
+                summary=readiness.warnings[0],
+            )
+        elif plan is not None:
+            self._set_feedback(
+                self._t(
+                    "scan.ready",
+                    distance=plan.distance_mm,
+                    samples=plan.samples_per_led,
+                ),
+                warning=False,
+            )
+        self._update_action_text()
+        return readiness
+
+    def _short_blocker_text(self, message):
+        fixed_messages = {
+            self._t("scan.recording_active"): "scan.recording_active_short",
+            self._t("scan.motion_busy"): "scan.motion_busy_short",
+            self._t("scan.force_required"): "scan.force_required_short",
+            self._t("scan.force_waiting"): "scan.force_waiting_short",
+            self._t("scan.load_confirmation_required"): (
+                "scan.load_confirmation_required_short"
+            ),
+            self._t("scan.channels_required"): "scan.channels_required_short",
+            self._t("scan.device_required"): "scan.device_required_short",
+            self._t("scan.invalid_dimensions"): "scan.invalid_dimensions_short",
+            self._t("scan.force_commissioning_active"): (
+                "scan.force_commissioning_active"
+            ),
+        }
+        key = fixed_messages.get(message, "scan.not_ready_short")
+        return self._t(key)
+
+    def _evaluate_readiness(self, plan):
+        blockers = []
+        warnings = []
+
+        if self.recorder.recording:
+            blockers.append(self._t("scan.recording_active"))
+        if bool(getattr(self.ui, "forceCommissioningActive", False)):
+            blockers.append(self._t("scan.force_commissioning_active"))
+        if self.motion.scan_running:
+            blockers.append(self._t("scan.motion_busy"))
+        if not self.force.running:
+            blockers.append(self._t("scan.force_required"))
+        elif self.force.latest_vals is None:
+            blockers.append(self._t("scan.force_waiting"))
+        elif not self._load_confirmed():
+            blockers.append(self._t("scan.load_confirmation_required"))
+        if not self._selected_daq_channels():
+            blockers.append(self._t("scan.channels_required"))
+        if not self._daq_device_name():
+            blockers.append(self._t("scan.device_required"))
+
+        resource_conflict = self._daq_resource_conflict()
+        if resource_conflict:
+            blockers.append(
+                self._t("scan.resource_busy", detail=resource_conflict)
+            )
+        if plan.distance_mm <= 0 or plan.led_count <= 0:
+            blockers.append(self._t("scan.invalid_dimensions"))
+        force_hold_config = self._force_hold_config()
+        if force_hold_config.enabled:
+            if plan.axis == "Z":
+                blockers.append(self._t("scan.force_hold_z_axis"))
+            target = self._confirmed_force_n
+            if (
+                target is None
+                or not isfinite(float(target))
+                or target <= 0
+            ):
+                blockers.append(self._t("scan.force_hold_target"))
+            else:
+                measured, sample_time = self._force_snapshot()
+                now = time.perf_counter()
+                if (
+                    measured is None
+                    or sample_time is None
+                    or not isfinite(float(measured))
+                    or not isfinite(float(sample_time))
+                    or now - sample_time > force_hold_config.signal_timeout_s
+                ):
+                    blockers.append(self._t("scan.force_hold_signal"))
+                elif abs(float(target) - float(measured)) > force_hold_config.hard_error_n:
+                    blockers.append(self._t("scan.force_hold_initial_error"))
+                else:
+                    safety_config = self._scan_force_safety_config(
+                        force_hold_config,
+                        float(target),
+                    )
+                    if float(measured) >= safety_config.total_high_n:
+                        blockers.append(self._t("scan.force_safety_limit"))
+        if plan.triangular_expected:
+            warnings.append(self._t("scan.triangular"))
+        if plan.samples_per_led < self.MIN_SAMPLES_PER_LED:
+            warnings.append(
+                self._t("scan.low_resolution", samples=plan.samples_per_led)
+            )
+        if (
+            plan.estimated_motion_samples_per_led
+            < self.MIN_MOTION_SAMPLES_PER_LED
+        ):
+            warnings.append(
+                self._t(
+                    "scan.low_motion_resolution",
+                    samples=plan.estimated_motion_samples_per_led,
+                )
+            )
+        return ScanReadiness(tuple(blockers), tuple(warnings))
+
+    def _daq_resource_conflict(self):
+        resources = getattr(self.daq, "resources", None)
+        if resources is None or not hasattr(resources, "snapshot"):
+            return ""
+        resource = ni_resource(self._daq_device_name(), "ai")
+        owner = resources.snapshot().get(resource)
+        if owner in (None, "daq"):
+            return ""
+        return f"{resource} is in use by {owner}"
+
+    def _poll_prepare(self):
+        if self.state is not ScanWorkflowState.PREPARING:
+            return
+        if self.daq.thread is None:
+            self._fail(self._t("scan.daq_lost"))
+            return
+        if not self.force.running:
+            self._fail(self._t("scan.force_lost"))
+            return
+        daq_ready = (
+            self.daq.thread is not None
+            and self.daq.thread.sample_clock_origin is not None
+        )
+        if daq_ready and self.force.running:
+            self._begin_motion()
+            return
+        if time.perf_counter() >= self._prepare_deadline:
+            self._fail(self._t("scan.prepare_timeout"))
+            return
+        self._single_shot(30, self._poll_prepare)
+
+    def _begin_motion(self):
+        plan = self._active_plan
+        try:
+            if self._force_hold_config_snapshot.enabled:
+                self._force_hold.arm(
+                    self._force_hold_config_snapshot,
+                    target_force_n=self._confirmed_force_n,
+                    now=time.perf_counter(),
+                )
+                self._force_safety.arm(
+                    self._scan_force_safety_config(
+                        self._force_hold_config_snapshot,
+                        float(self._confirmed_force_n),
+                    )
+                )
+            else:
+                self._force_hold.disarm()
+                self._force_safety.reset()
+        except (TypeError, ValueError) as exc:
+            if self._force_hold_config_snapshot.enabled:
+                self._fail(self._t("scan.invalid_plan", detail=str(exc)))
+                return
+            self._force_hold.disarm()
+            self._force_safety.reset()
+        self.state = ScanWorkflowState.RUNNING
+        self._progress_origin = None
+        self._progress_percent = 0.0
+        self._last_progress_update = 0.0
+        self._set_phase("running")
+        self._show_running_progress()
+        self._update_action_text()
+        self._set_runtime_scan(RuntimeStatus.RUNNING, "running")
+        metadata = self._scan_metadata(plan)
+
+        def capture_start(clock):
+            self.recorder.start(metadata=metadata, start_monotonic=clock)
+            if not self.recorder.recording:
+                raise RuntimeError(self._t("scan.recording_start_failed"))
+            self._capture_started = True
+            if self.runtime is not None:
+                self.runtime.set("recording", RuntimeStatus.RUNNING)
+
+        def telemetry(clock, state):
+            self.recorder.add_motion_sample(clock, state)
+            self._on_force_hold_tick(clock)
+
+        started = self.motion.start_scan(
+            axis_name=plan.axis,
+            direction=plan.direction,
+            distance_mm=plan.distance_mm,
+            telemetry_interval_ms=plan.motion_telemetry_interval_ms,
+            on_capture_start=capture_start,
+            on_telemetry=telemetry,
+            on_capture_end=self.recorder.set_capture_end,
+            on_finished=self._on_motion_finished,
+        )
+        if not started:
+            self._fail(self._t("scan.motion_busy"))
+            return
+
+        if plan.triangular_expected:
+            log(
+                "[Scan] Warning: no constant-speed segment is expected; "
+                "the controller may automatically reduce speed",
+                "warning",
+            )
+        if plan.samples_per_led < self.MIN_SAMPLES_PER_LED:
+            log(
+                f"[Scan] Warning: only {plan.samples_per_led:.1f} samples per LED",
+                "warning",
+            )
+
+    def _scan_metadata(self, plan):
+        started_at = datetime.now().astimezone()
+        scan_id = (
+            started_at.strftime("R%y%m%d-%H%M%S-")
+            + f"{started_at.microsecond // 1000:03d}"
+        )
+        metadata = asdict(plan)
+        metadata.update(
+            {
+                "workflow": "single_led_scan",
+                "scan_id": scan_id,
+                "started_at": started_at.isoformat(timespec="milliseconds"),
+                "operator_name": getattr(self.config, "operator_name", "") or "",
+                "output_directory": str(Path(self.recorder.save_dir).resolve()),
+                "interface_language": getattr(self.translator, "language", "en"),
+                "daq_device": self._daq_device_name(),
+                "daq_channels": self._selected_daq_channels(),
+                "force_mode": self.force.active_mode,
+                "force_device": self.force._force_device(),
+                "minimum_samples_per_led": self.MIN_SAMPLES_PER_LED,
+                "operator_load_confirmed": self._load_confirmed(),
+                "confirmed_total_force_n": self._confirmed_force_n,
+                "load_confirmed_at": self._load_confirmed_at,
+            }
+        )
+        device_info = self._daq_device_info()
+        if device_info is not None:
+            metadata.update(
+                {
+                    "daq_product_type": device_info.product_type,
+                    "daq_device_simulated": device_info.is_simulated,
+                    "daq_simultaneous_sampling": device_info.simultaneous_sampling,
+                    "daq_ai_rate_limit_hz": device_info.ai_rate_limit(
+                        len(metadata["daq_channels"])
+                    ),
+                }
+            )
+        daq_snapshot = getattr(
+            getattr(self, "daq", None),
+            "active_configuration_metadata",
+            None,
+        )
+        if callable(daq_snapshot):
+            metadata.update(daq_snapshot())
+        force_snapshot = getattr(self.force, "active_configuration_metadata", None)
+        if callable(force_snapshot):
+            metadata.update(force_snapshot())
+        metadata.update(self._force_hold_metadata())
+        return metadata
+
+    def _monitor_active_streams(self):
+        if (
+            self.state is not ScanWorkflowState.RUNNING
+            or self._abort_requested
+        ):
+            return
+
+        if self.daq.thread is None:
+            detail = self._t("scan.daq_lost")
+        elif not self.force.running:
+            detail = self._t("scan.force_lost")
+        elif self._capture_started and not self.recorder.recording:
+            detail = self._t("scan.recording_lost")
+        else:
+            return
+
+        self._abort_requested = True
+        self._set_feedback(detail, warning=True)
+        self._set_runtime_scan(RuntimeStatus.WARNING, "stream_lost")
+        log(f"[Scan] {detail}; requesting emergency stop", "error")
+        self.motion.emergency_stop()
+
+    def _on_motion_progress(self, state):
+        if self.state is not ScanWorkflowState.RUNNING or self._active_plan is None:
+            return
+        if self._progress_origin is None:
+            self._progress_origin = int(state.position)
+
+        pulses_per_mm = self.motion.AXIS_CONFIG[self._active_plan.axis][
+            "pulses_per_mm"
+        ]
+        target_pulses = max(
+            1,
+            round(self._active_plan.distance_mm * pulses_per_mm),
+        )
+        travelled = abs(int(state.position) - self._progress_origin)
+        self._progress_percent = min(99.0, travelled * 100.0 / target_pulses)
+        now = time.perf_counter()
+        if now - self._last_progress_update >= 0.1:
+            self._last_progress_update = now
+            self._show_running_progress()
+
+    def _show_running_progress(self):
+        hold = self._force_hold.snapshot()
+        if hold.get("force_hold_armed"):
+            text = self._t(
+                "scan.force_hold_running",
+                progress=self._progress_percent,
+                force=hold["force_hold_measured_n"],
+                target=hold["force_hold_target_n"],
+                derivative=hold.get("force_hold_derivative_n_s", 0.0),
+                offset=hold["force_hold_accumulated_z_mm"],
+            )
+        else:
+            text = self._t("scan.progress", progress=self._progress_percent)
+        self._set_feedback(text, warning=False)
+        self._update_force_hold_status()
+
+    def _update_force_hold_status(self):
+        label = getattr(self.ui, "forceHoldStatusLabel", None)
+        if label is None or not hasattr(label, "setText"):
+            return
+
+        config = self._force_hold_config()
+        snapshot = self._force_hold_metadata()
+        if snapshot.get("force_hold_armed"):
+            text = self._t(
+                "force_hold.status_active",
+                target=float(snapshot.get("force_hold_target_n", 0.0)),
+                derivative=float(
+                    snapshot.get("force_hold_derivative_n_s", 0.0)
+                ),
+                corrections=int(snapshot.get("force_hold_correction_count", 0)),
+                offset=float(snapshot.get("force_hold_accumulated_z_mm", 0.0)),
+            )
+            color = "#8ff0b5"
+            state = "active"
+        elif not config.enabled:
+            text = self._t("force_hold.status_off")
+            color = "#9CA3AF"
+            state = "off"
+        elif not getattr(self.force, "running", False):
+            text = self._t("force_hold.status_start_force")
+            color = "#ffd28a"
+            state = "waiting_force"
+        elif getattr(self.force, "latest_vals", None) is None:
+            text = self._t("force_hold.status_wait_force")
+            color = "#ffd28a"
+            state = "waiting_sample"
+        elif not self._load_confirmed() or self._confirmed_force_n is None:
+            text = self._t("force_hold.status_confirm")
+            color = "#ffd28a"
+            state = "waiting_confirmation"
+        else:
+            text = self._t(
+                "force_hold.status_ready",
+                target=float(self._confirmed_force_n),
+                current=float(getattr(self.force, "latest_force", 0.0)),
+                interval=config.derivative_interval_s,
+            )
+            color = "#8ff0b5"
+            state = "ready"
+        label.setText(text)
+        label.setStyleSheet(f"color: {color};")
+        if hasattr(label, "setToolTip"):
+            label.setToolTip(self._t("force_hold.workflow"))
+        self.ui.forceHoldStatus = state
+
+    def _on_force_hold_tick(self, sample_clock):
+        hold_snapshot = self._force_hold.snapshot()
+        if not hold_snapshot.get("force_hold_armed"):
+            return
+        if not hasattr(self, "_force_safety"):
+            self._force_safety = ForceSafetySupervisor()
+            self._force_safety.arm(
+                self._scan_force_safety_config(
+                    self._force_hold.config,
+                    float(hold_snapshot.get("force_hold_target_n", 0.0)),
+                )
+            )
+        measured, channels, force_clock = self._force_safety_snapshot()
+        safety_decision = self._force_safety.evaluate(
+            measured,
+            channels,
+            force_clock,
+            sample_clock,
+        )
+        if safety_decision.kind == "trip":
+            self._record_force_safety_event(sample_clock, safety_decision)
+            self._stop_force_hold_z()
+            app_config = getattr(self, "config", None)
+            ui = getattr(self, "ui", None)
+            if (
+                bool(getattr(app_config, "force_safety_retract_enabled", False))
+                and bool(getattr(ui, "forceZDirectionVerified", False))
+                and safety_decision.reason
+                in ForceSafetySupervisor.RETRACT_REASONS
+            ):
+                retract = getattr(self.motion, "request_force_hold_retract", None)
+                if callable(retract):
+                    try:
+                        retract(
+                            float(
+                                getattr(
+                                    app_config,
+                                    "force_safety_retract_mm",
+                                    0.002,
+                                )
+                            )
+                        )
+                    except Exception as exc:
+                        log(
+                            f"[Force Hold] controlled retract failed: {exc}",
+                            "error",
+                        )
+            if ui is not None:
+                ui.forceZDirectionVerified = False
+            detail = self._force_safety_reason_text(safety_decision)
+            raise RuntimeError(self._t("scan.force_hold_abort", detail=detail))
+
+        if measured is None or force_clock is None:
+            decision = self._force_hold.evaluate(
+                float("nan"),
+                float("nan"),
+                sample_clock,
+            )
+        else:
+            decision = self._force_hold.evaluate(
+                measured,
+                force_clock,
+                sample_clock,
+            )
+
+        if decision.kind == "abort":
+            detail = self._force_hold_reason_text(decision.reason)
+            self._record_force_hold_event(
+                sample_clock,
+                decision,
+                accumulated_z_mm=self._force_hold.snapshot()[
+                    "force_hold_accumulated_z_mm"
+                ],
+                z_position_pulse=0,
+                status=f"abort:{decision.reason}",
+            )
+            self._stop_force_hold_z()
+            raise RuntimeError(self._t("scan.force_hold_abort", detail=detail))
+
+        if decision.kind != "correct":
+            return
+        try:
+            applied, status, z_position = self.motion.apply_force_hold_z_step(
+                decision.direction,
+                decision.step_mm,
+            )
+        except Exception as exc:
+            self._record_force_hold_event(
+                sample_clock,
+                decision,
+                accumulated_z_mm=self._force_hold.snapshot()[
+                    "force_hold_accumulated_z_mm"
+                ],
+                z_position_pulse=0,
+                status=f"failed:{type(exc).__name__}",
+            )
+            self._stop_force_hold_z()
+            detail = self._t("scan.force_hold_motion_failed", detail=str(exc))
+            raise RuntimeError(self._t("scan.force_hold_abort", detail=detail)) from exc
+        if not applied:
+            return
+
+        self._force_hold.accept(decision)
+        snapshot = self._force_hold.snapshot()
+        self._record_force_hold_event(
+            sample_clock,
+            decision,
+            accumulated_z_mm=snapshot["force_hold_accumulated_z_mm"],
+            z_position_pulse=z_position,
+            status=status,
+        )
+
+    def _scan_force_safety_config(self, hold_config, target_force_n):
+        app_config = getattr(self, "config", None)
+        configured_total = float(
+            getattr(app_config, "force_safety_total_high_n", 0.0)
+        )
+        total_high = (
+            configured_total
+            if configured_total > 0
+            else float(target_force_n) + float(hold_config.hard_error_n)
+        )
+        return ForceSafetyConfig(
+            total_high_n=total_high,
+            channel_high_n=float(
+                getattr(app_config, "force_safety_channel_high_n", 0.0)
+            ),
+            imbalance_high_n=float(
+                getattr(app_config, "force_safety_imbalance_n", 0.0)
+            ),
+            rise_rate_high_n_s=float(
+                getattr(app_config, "force_safety_rise_rate_n_s", 0.0)
+            ),
+            signal_timeout_s=float(hold_config.signal_timeout_s),
+            imbalance_confirm_s=0.05,
+            rise_rate_confirm_s=0.02,
+        )
+
+    def _force_safety_snapshot(self):
+        force = getattr(self, "force", None)
+        getter = getattr(force, "force_safety_snapshot", None)
+        if callable(getter):
+            config = self._force_hold_config_snapshot
+            return getter(window_s=config.measurement_window_s)
+        measured, sample_time = self._force_snapshot()
+        latest_vals = getattr(force, "latest_vals", None)
+        channels = (
+            tuple(float(value) for value in latest_vals)
+            if latest_vals is not None
+            else ((float(measured),) if measured is not None else ())
+        )
+        return measured, channels, sample_time
+
+    def _record_force_safety_event(self, sample_clock, decision):
+        add_event = getattr(self.recorder, "add_force_hold_event", None)
+        if not callable(add_event):
+            return
+        snapshot = self._force_hold.snapshot()
+        target = float(snapshot.get("force_hold_target_n", 0.0))
+        legacy_reasons = {"stale_signal", "invalid_signal"}
+        status_prefix = "abort" if decision.reason in legacy_reasons else "safety_abort"
+        add_event(
+            source_monotonic=sample_clock,
+            measured_force_n=decision.total_force_n,
+            target_force_n=target,
+            error_n=target - decision.total_force_n,
+            direction=0,
+            step_mm=0.0,
+            accumulated_z_mm=float(
+                snapshot.get("force_hold_accumulated_z_mm", 0.0)
+            ),
+            z_position_pulse=0,
+            status=f"{status_prefix}:{decision.reason}",
+        )
+
+    def _force_safety_reason_text(self, decision):
+        key = f"scan.force_safety_{decision.reason}"
+        translated = self._t(key)
+        return decision.detail if translated == key else translated
+
+    def _force_hold_config(self):
+        app_config = getattr(self, "config", None)
+        enabled_widget = getattr(self.ui, "forceHoldEnableCheckBox", None)
+        interval_widget = getattr(self.ui, "forceHoldIntervalSpinBox", None)
+        tolerance_widget = getattr(self.ui, "forceHoldToleranceSpinBox", None)
+        step_widget = getattr(self.ui, "forceHoldStepSpinBox", None)
+        enabled = bool(
+            enabled_widget is not None
+            and hasattr(enabled_widget, "isChecked")
+            and enabled_widget.isChecked()
+        )
+        interval = (
+            float(interval_widget.value())
+            if interval_widget is not None and hasattr(interval_widget, "value")
+            else float(getattr(app_config, "force_derivative_interval_s", 0.10))
+        )
+        deadband = (
+            float(tolerance_widget.value())
+            if tolerance_widget is not None and hasattr(tolerance_widget, "value")
+            else float(
+                getattr(app_config, "force_derivative_deadband_n_s", 1.0)
+            )
+        )
+        step = (
+            float(step_widget.value())
+            if step_widget is not None and hasattr(step_widget, "value")
+            else float(getattr(app_config, "force_derivative_z_step_mm", 0.0005))
+        )
+        measurement_window = min(
+            float(
+                getattr(
+                    app_config,
+                    "force_derivative_measurement_window_s",
+                    0.05,
+                )
+            ),
+            interval,
+        )
+        return ForceHoldConfig(
+            enabled=enabled,
+            derivative_interval_s=interval,
+            derivative_deadband_n_s=deadband,
+            z_step_mm=step,
+            measurement_window_s=measurement_window,
+            signal_timeout_s=max(0.15, interval * 2.5),
+            max_offset_mm=float(
+                getattr(app_config, "force_derivative_max_offset_mm", 0.05)
+            ),
+            hard_error_n=float(
+                getattr(app_config, "force_derivative_max_error_n", 2.0)
+            ),
+        )
+
+    def _force_hold_metadata(self):
+        force_hold = getattr(self, "_force_hold", None)
+        if force_hold is not None:
+            return force_hold.snapshot()
+        return ForceHoldController().snapshot()
+
+    def _force_snapshot(self):
+        getter = getattr(self.force, "force_control_snapshot", None)
+        if callable(getter):
+            snapshot = self._force_hold_metadata()
+            if snapshot.get("force_hold_armed"):
+                config = getattr(
+                    self,
+                    "_force_hold_config_snapshot",
+                    self._force_hold_config(),
+                )
+            else:
+                config = self._force_hold_config()
+            return getter(window_s=config.measurement_window_s)
+        latest = getattr(self.force, "latest_force", None)
+        if latest is None:
+            return None, None
+        return float(latest), time.perf_counter()
+
+    def _record_force_hold_event(
+        self,
+        sample_clock,
+        decision,
+        accumulated_z_mm,
+        z_position_pulse,
+        status,
+    ):
+        add_event = getattr(self.recorder, "add_force_hold_event", None)
+        if callable(add_event):
+            add_event(
+                source_monotonic=sample_clock,
+                measured_force_n=decision.measured_force_n,
+                target_force_n=decision.target_force_n,
+                error_n=decision.error_n,
+                derivative_n_s=decision.derivative_n_s,
+                derivative_interval_s=decision.sample_interval_s,
+                direction=decision.direction,
+                step_mm=decision.step_mm,
+                accumulated_z_mm=accumulated_z_mm,
+                z_position_pulse=z_position_pulse,
+                status=status,
+            )
+
+    def _stop_force_hold_z(self):
+        stop = getattr(self.motion, "stop_force_hold_z", None)
+        if callable(stop):
+            try:
+                stop()
+            except Exception as exc:
+                log(f"[Force Hold] Z stop failed: {type(exc).__name__}: {exc}", "error")
+
+    def _force_hold_reason_text(self, reason):
+        keys = {
+            "stale_signal": "scan.force_hold_stale_signal",
+            "invalid_signal": "scan.force_hold_invalid_signal",
+            "force_error_limit": "scan.force_hold_force_error_limit",
+            "z_travel_limit": "scan.force_hold_z_travel_limit",
+        }
+        return self._t(keys.get(reason, "scan.force_hold_invalid_signal"))
+
+    def _on_motion_finished(self, completed, detail):
+        if self.state is not ScanWorkflowState.RUNNING:
+            return
+        if self._force_hold.snapshot().get("force_hold_armed"):
+            self._stop_force_hold_z()
+        self.state = ScanWorkflowState.SAVING
+        self._progress_percent = 100.0 if completed else self._progress_percent
+        self._set_controls_locked(True)
+        self._set_phase("saving")
+        self._set_feedback(self._t("scan.saving"), warning=False)
+        self._update_action_text()
+        self._set_runtime_scan(RuntimeStatus.STOPPING, "saving")
+        self._save_started_at = time.perf_counter()
+        self._poll_save_status()
+        drain_ms = round(self.config.daq_chunk_interval_s * 1000) + 80
+        self._single_shot(
+            drain_ms,
+            lambda: self._finalize(bool(completed), str(detail)),
+        )
+
+    def _show_saving_progress(self):
+        elapsed = max(0.0, time.perf_counter() - self._save_started_at)
+        self._set_feedback(
+            self._t("scan.saving_elapsed", seconds=elapsed),
+            warning=False,
+        )
+
+    def _poll_save_status(self):
+        if self.state is not ScanWorkflowState.SAVING:
+            return
+        self._show_saving_progress()
+        self._single_shot(250, self._poll_save_status)
+
+    def _finalize(self, completed, detail):
+        seal = getattr(self.recorder, "seal", None)
+        save_sealed = getattr(self.recorder, "save_sealed", None)
+        if not callable(seal) or not callable(save_sealed):
+            self._finalize_legacy(completed, detail)
+            return
+        if getattr(self, "_save_worker", None) is not None:
+            return
+
+        try:
+            if not seal():
+                raise RuntimeError("recording was not active when saving started")
+            self._capture_started = False
+            if self.runtime is not None:
+                self.runtime.set("recording", RuntimeStatus.STOPPING)
+            self._stop_started_daq_for_save()
+        except Exception as exc:
+            self._handle_async_save_failure(exc)
+            return
+
+        operation = lambda: self._prepare_sealed_save(completed, detail)
+        if self._start_save_worker(operation):
+            return
+        try:
+            payload = operation()
+        except Exception as exc:
+            self._handle_async_save_failure(exc)
+            return
+        self._complete_sealed_save(payload)
+
+    def _start_save_worker(self, operation):
+        try:
+            from PySide6.QtCore import QCoreApplication, Qt
+
+            if QCoreApplication.instance() is None:
+                return False
+            from modules.workflow.scan_save_worker import (
+                ScanSaveBridge,
+                ScanSaveWorker,
+            )
+        except (ImportError, RuntimeError):
+            return False
+
+        worker = ScanSaveWorker(operation)
+        bridge = ScanSaveBridge(
+            self._complete_sealed_save,
+            self._handle_async_save_failure,
+            lambda: self._release_save_worker(worker),
+        )
+        self._save_worker = worker
+        self._save_bridge = bridge
+        worker.succeeded.connect(bridge.deliver_success, Qt.QueuedConnection)
+        worker.failed.connect(bridge.deliver_failure, Qt.QueuedConnection)
+        worker.finished.connect(bridge.deliver_finished, Qt.QueuedConnection)
+        worker.start()
+        return True
+
+    def _release_save_worker(self, worker):
+        if self._save_worker is worker:
+            self._save_worker = None
+            self._save_bridge = None
+
+    def _stop_started_daq_for_save(self):
+        if (
+            getattr(self, "_started_daq", False)
+            and getattr(getattr(self, "daq", None), "thread", None) is not None
+        ):
+            self.daq.stop()
+        self._started_daq = False
+
+    def _prepare_sealed_save(self, completed, detail):
+        quality = self._actual_motion_quality(detail)
+        try:
+            spatial_analysis = self._spatial_scan_analysis()
+            self.recorder.set_spatial_scan(spatial_analysis)
+            quality.update(spatial_analysis.metadata)
+        except Exception as exc:
+            quality.update(
+                {
+                    "spatial_mapping_available": False,
+                    "spatial_mapping_warning": True,
+                    "spatial_mapping_detail": (
+                        f"spatial mapping failed: {type(exc).__name__}: {exc}"
+                    ),
+                    "spatial_leds_distinguishable": False,
+                }
+            )
+            log(quality["spatial_mapping_detail"], "error")
+
+        warning_details = []
+        if quality.get("motion_quality_warning"):
+            warning_details.append(quality.get("motion_quality_detail", ""))
+        if quality.get("spatial_mapping_warning"):
+            warning_details.append(quality.get("spatial_mapping_detail", ""))
+        quality["scan_quality_warning"] = bool(warning_details)
+        quality["scan_quality_detail"] = (
+            "; ".join(value for value in warning_details if value) or "ok"
+        )
+        quality.update(
+            {
+                "scan_completed": bool(completed),
+                "scan_completion_detail": str(detail),
+                **self._capture_summary_metadata(),
+                **self._force_hold_metadata(),
+            }
+        )
+        self.recorder.update_metadata(quality)
+        paths = self.recorder.save_sealed() or {}
+        return bool(completed), str(detail), quality, dict(paths)
+
+    def _complete_sealed_save(self, payload):
+        completed, detail, quality, paths = payload
+        if self.runtime is not None:
+            self.runtime.set("recording", RuntimeStatus.READY)
+        self._finish_session()
+
+        quality_warning = bool(quality["scan_quality_warning"])
+        missing_streams = tuple(
+            stream for stream in self.EXPECTED_STREAMS if stream not in paths
+        )
+        if missing_streams:
+            outcome = "error"
+        elif not completed or quality_warning:
+            outcome = "warning"
+        else:
+            outcome = "completed"
+
+        result = ScanResult(
+            outcome=outcome,
+            group_id=int(self.recorder.group_id),
+            file_count=len(paths),
+            save_dir=str(Path(self.recorder.save_dir).resolve()),
+            paths=dict(paths),
+            led_bins_covered=int(quality.get("led_bins_covered", 0)),
+            led_bins_expected=int(quality.get("led_bins_expected", 0)),
+            minimum_samples_per_led=int(
+                quality.get("minimum_samples_per_led_actual", 0)
+            ),
+            maximum_samples_per_led=int(
+                quality.get("maximum_samples_per_led_actual", 0)
+            ),
+            constant_speed_fraction=float(
+                quality.get("measured_constant_speed_fraction", 0.0)
+            ),
+            capture_duration_s=float(quality.get("capture_duration_s") or 0.0),
+            scan_id=str(getattr(self.recorder, "metadata", {}).get("scan_id", "")),
+            operator_name=str(
+                getattr(self.recorder, "metadata", {}).get("operator_name", "")
+            ),
+            missing_streams=missing_streams,
+            detail=(
+                quality["scan_quality_detail"]
+                if quality_warning
+                else str(detail)
+            ),
+            force_hold_enabled=bool(quality.get("force_hold_enabled", False)),
+            force_hold_fast_response=bool(
+                quality.get("force_hold_fast_response", False)
+            ),
+            force_hold_derivative_interval_s=float(
+                quality.get("force_hold_derivative_interval_s", 0.0)
+            ),
+            force_hold_derivative_deadband_n_s=float(
+                quality.get("force_hold_derivative_deadband_n_s", 0.0)
+            ),
+            force_hold_target_n=float(quality.get("force_hold_target_n", 0.0)),
+            force_hold_correction_count=int(
+                quality.get("force_hold_correction_count", 0)
+            ),
+            force_hold_offset_mm=float(
+                quality.get("force_hold_accumulated_z_mm", 0.0)
+            ),
+        )
+        self._last_result = result
+        self._last_failure = None
+        self.ui.scanLastSavedPaths = dict(paths)
+        self._show_result(result)
+        self.refresh_readiness(preserve_result=True)
+
+        runtime_status = {
+            "completed": RuntimeStatus.READY,
+            "warning": RuntimeStatus.WARNING,
+            "error": RuntimeStatus.ERROR,
+        }[outcome]
+        self._set_runtime_scan(runtime_status, outcome)
+
+        if outcome == "completed":
+            log(f"[Scan] Completed; saved {len(paths)} files to {result.save_dir}")
+        elif missing_streams:
+            missing_text = ", ".join(missing_streams)
+            log(
+                f"[Scan] Incomplete data set; missing {missing_text}; "
+                f"saved to {result.save_dir}",
+                "error",
+            )
+        elif completed:
+            log(f"[Scan] Saved with motion warning: {result.detail}", "warning")
+        else:
+            log(f"[Scan] Stopped: {detail}; partial data saved", "warning")
+
+    def _handle_async_save_failure(self, exc):
+        cancel_save = getattr(self.recorder, "cancel_save", None)
+        if callable(cancel_save):
+            cancel_save()
+        self._finish_session()
+        if self.runtime is not None:
+            self.runtime.set("recording", RuntimeStatus.ERROR, str(exc))
+        self._set_runtime_scan(RuntimeStatus.ERROR, "save_failed")
+        self._set_phase("error")
+        self._last_failure = self._t("scan.save_failed", detail=str(exc))
+        self._set_feedback(self._last_failure, warning=True)
+        log(f"[Scan] Save failed: {type(exc).__name__}: {exc}", "error")
+
+    def _finalize_legacy(self, completed, detail):
+        quality = self._actual_motion_quality(detail)
+        try:
+            spatial_analysis = self._spatial_scan_analysis()
+            self.recorder.set_spatial_scan(spatial_analysis)
+            quality.update(spatial_analysis.metadata)
+        except Exception as exc:
+            quality.update(
+                {
+                    "spatial_mapping_available": False,
+                    "spatial_mapping_warning": True,
+                    "spatial_mapping_detail": (
+                        f"spatial mapping failed: {type(exc).__name__}: {exc}"
+                    ),
+                    "spatial_leds_distinguishable": False,
+                }
+            )
+            log(quality["spatial_mapping_detail"], "error")
+
+        warning_details = []
+        if quality.get("motion_quality_warning"):
+            warning_details.append(quality.get("motion_quality_detail", ""))
+        if quality.get("spatial_mapping_warning"):
+            warning_details.append(quality.get("spatial_mapping_detail", ""))
+        quality["scan_quality_warning"] = bool(warning_details)
+        quality["scan_quality_detail"] = (
+            "; ".join(detail for detail in warning_details if detail) or "ok"
+        )
+        quality.update(
+            {
+                "scan_completed": bool(completed),
+                "scan_completion_detail": str(detail),
+                **self._capture_summary_metadata(),
+                **self._force_hold_metadata(),
+            }
+        )
+        try:
+            self.recorder.update_metadata(quality)
+            paths = self.recorder.stop() or {}
+        except Exception as exc:
+            self._finish_session()
+            if self.runtime is not None:
+                self.runtime.set("recording", RuntimeStatus.ERROR, str(exc))
+            self._set_runtime_scan(RuntimeStatus.ERROR, "save_failed")
+            self._set_phase("error")
+            self._last_failure = self._t("scan.save_failed", detail=str(exc))
+            self._set_feedback(self._last_failure, warning=True)
+            log(f"[Scan] Save failed: {type(exc).__name__}: {exc}", "error")
+            return
+
+        if self.runtime is not None:
+            self.runtime.set("recording", RuntimeStatus.READY)
+        self._finish_session()
+
+        quality_warning = bool(quality["scan_quality_warning"])
+        missing_streams = tuple(
+            stream for stream in self.EXPECTED_STREAMS if stream not in paths
+        )
+        if missing_streams:
+            outcome = "error"
+        elif not completed or quality_warning:
+            outcome = "warning"
+        else:
+            outcome = "completed"
+
+        result = ScanResult(
+            outcome=outcome,
+            group_id=int(self.recorder.group_id),
+            file_count=len(paths),
+            save_dir=str(Path(self.recorder.save_dir).resolve()),
+            paths=dict(paths),
+            led_bins_covered=int(quality.get("led_bins_covered", 0)),
+            led_bins_expected=int(quality.get("led_bins_expected", 0)),
+            minimum_samples_per_led=int(
+                quality.get("minimum_samples_per_led_actual", 0)
+            ),
+            maximum_samples_per_led=int(
+                quality.get("maximum_samples_per_led_actual", 0)
+            ),
+            constant_speed_fraction=float(
+                quality.get("measured_constant_speed_fraction", 0.0)
+            ),
+            capture_duration_s=float(quality.get("capture_duration_s") or 0.0),
+            scan_id=str(getattr(self.recorder, "metadata", {}).get("scan_id", "")),
+            operator_name=str(
+                getattr(self.recorder, "metadata", {}).get("operator_name", "")
+            ),
+            missing_streams=missing_streams,
+            detail=(
+                quality["scan_quality_detail"]
+                if quality_warning
+                else str(detail)
+            ),
+            force_hold_enabled=bool(quality.get("force_hold_enabled", False)),
+            force_hold_fast_response=bool(
+                quality.get("force_hold_fast_response", False)
+            ),
+            force_hold_derivative_interval_s=float(
+                quality.get("force_hold_derivative_interval_s", 0.0)
+            ),
+            force_hold_derivative_deadband_n_s=float(
+                quality.get("force_hold_derivative_deadband_n_s", 0.0)
+            ),
+            force_hold_target_n=float(quality.get("force_hold_target_n", 0.0)),
+            force_hold_correction_count=int(
+                quality.get("force_hold_correction_count", 0)
+            ),
+            force_hold_offset_mm=float(
+                quality.get("force_hold_accumulated_z_mm", 0.0)
+            ),
+        )
+        self._last_result = result
+        self._last_failure = None
+        self.ui.scanLastSavedPaths = dict(paths)
+        self._show_result(result)
+        self.refresh_readiness(preserve_result=True)
+
+        runtime_status = {
+            "completed": RuntimeStatus.READY,
+            "warning": RuntimeStatus.WARNING,
+            "error": RuntimeStatus.ERROR,
+        }[outcome]
+        self._set_runtime_scan(runtime_status, outcome)
+
+        if outcome == "completed":
+            log(f"[Scan] Completed; saved {len(paths)} files to {result.save_dir}")
+        elif missing_streams:
+            missing_text = ", ".join(missing_streams)
+            log(
+                f"[Scan] Incomplete data set; missing {missing_text}; "
+                f"saved to {result.save_dir}",
+                "error",
+            )
+        elif completed:
+            log(f"[Scan] Saved with motion warning: {result.detail}", "warning")
+        else:
+            log(f"[Scan] Stopped: {detail}; partial data saved", "warning")
+
+    def _actual_motion_quality(self, detail):
+        plan = self._active_plan
+        pulses_per_mm = self.motion.AXIS_CONFIG[plan.axis]["pulses_per_mm"]
+        rows = list(self.recorder.motion_buffer)
+        moving = [row for row in rows if row[3] in (2, 3, 4)]
+        constant = [row for row in moving if row[3] == 3]
+        speeds = [row[2] / pulses_per_mm for row in moving]
+        constant_speeds = [row[2] / pulses_per_mm for row in constant]
+        constant_fraction = len(constant) / len(moving) if moving else 0.0
+        max_speed = max(speeds, default=0.0)
+        mean_constant_speed = (
+            sum(constant_speeds) / len(constant_speeds)
+            if constant_speeds
+            else 0.0
+        )
+        warning_reasons = []
+        if detail == "triangular" or not constant:
+            warning_reasons.append("no measured constant-speed segment")
+        if max_speed < plan.speed_mm_s * 0.9:
+            warning_reasons.append(
+                f"peak speed {max_speed:.2f} mm/s below command {plan.speed_mm_s:.2f} mm/s"
+            )
+        return {
+            "motion_result": detail,
+            "measured_motion_samples": len(moving),
+            "measured_constant_speed_samples": len(constant),
+            "measured_constant_speed_fraction": constant_fraction,
+            "measured_peak_speed_mm_s": max_speed,
+            "measured_mean_constant_speed_mm_s": mean_constant_speed,
+            "motion_quality_warning": bool(warning_reasons),
+            "motion_quality_detail": "; ".join(warning_reasons) or "ok",
+        }
+
+    def _capture_summary_metadata(self):
+        start_clock = getattr(self.recorder, "start_time", None)
+        end_clock = getattr(self.recorder, "capture_end_clock", None)
+        duration = None
+        if start_clock is not None and end_clock is not None:
+            duration = max(0.0, float(end_clock) - float(start_clock))
+        return {
+            "capture_duration_s": duration,
+            "data_rows": {
+                "daq": len(getattr(self.recorder, "daq_buffer", ())),
+                "force": len(getattr(self.recorder, "force_buffer", ())),
+                "force_hold": len(getattr(self.recorder, "force_hold_buffer", ())),
+                "motion": len(getattr(self.recorder, "motion_buffer", ())),
+                "spatial": len(getattr(self.recorder, "spatial_buffer", ())),
+                "led_summary": len(
+                    getattr(self.recorder, "led_summary_buffer", ())
+                ),
+            },
+            "expected_streams": list(self.EXPECTED_STREAMS),
+        }
+
+    def _spatial_scan_analysis(self):
+        plan = self._active_plan
+        pulses_per_mm = self.motion.AXIS_CONFIG[plan.axis]["pulses_per_mm"]
+        return build_spatial_scan_analysis(
+            daq_rows=getattr(self.recorder, "daq_buffer", ()),
+            motion_rows=getattr(self.recorder, "motion_buffer", ()),
+            daq_channels=getattr(self.recorder, "daq_channels", ()),
+            led_count=plan.led_count,
+            led_size_mm=plan.led_size_mm,
+            pulses_per_mm=pulses_per_mm,
+            direction=plan.direction,
+            minimum_samples_per_led=self.MIN_SAMPLES_PER_LED,
+        )
+
+    def _fail(self, detail, runtime_status=RuntimeStatus.ERROR):
+        save_error = None
+        if self.recorder.recording:
+            try:
+                self.recorder.set_capture_end(time.perf_counter())
+                self.recorder.stop()
+            except Exception as exc:
+                save_error = exc
+        if self.runtime is not None:
+            self.runtime.set(
+                "recording",
+                RuntimeStatus.ERROR if save_error else RuntimeStatus.READY,
+                str(save_error or ""),
+            )
+        self._finish_session()
+        self._last_result = None
+        self._last_failure = self._t("scan.failed", detail=detail)
+        self._set_phase("error")
+        self._set_feedback(self._last_failure, warning=True)
+        self._set_runtime_scan(runtime_status, str(detail))
+        log(f"[Scan] {detail}", "warning")
+        if save_error is not None:
+            log(
+                f"[Scan] Cleanup save failed: {type(save_error).__name__}: "
+                f"{save_error}",
+                "error",
+            )
+
+    def _reject_start(self, detail):
+        self.state = ScanWorkflowState.IDLE
+        self._set_phase("idle")
+        self._set_feedback(detail, warning=True)
+        self._update_action_text()
+        log(f"[Scan] Start blocked: {detail}", "warning")
+
+    def _finish_session(self):
+        if self._started_daq and self.daq.thread is not None:
+            self.daq.stop()
+        self._started_daq = False
+        self._capture_started = False
+        self._abort_requested = False
+        self._force_hold.disarm("scan_finished")
+        self._force_safety.reset()
+        self.state = ScanWorkflowState.IDLE
+        self._set_controls_locked(False)
+        self._reset_load_confirmation()
+        self._update_action_text()
+
+    def _configure_inputs(self):
+        self.ui.Circle_times.setRange(1, 10000)
+        self.ui.Gap_time.setRange(0.001, 100.0)
+        self.ui.Gap_time.setDecimals(3)
+        if self.ui.Gap_time.value() <= 0.001:
+            self.ui.Gap_time.setValue(1.0)
+        self.ui.Gap_time.setSuffix(" mm")
+        self.ui.distanceSpinBox_2.setRange(0.001, 10000.0)
+        self.ui.distanceSpinBox_2.setReadOnly(True)
+        self.ui.distanceSpinBox_2.setSuffix(" mm")
+        self.ui.Speed_Setting_val.setRange(
+            self.motion.MIN_SPEED_MM_S,
+            self.motion.MAX_SPEED_MM_S,
+        )
+        self.ui.Speed_Setting_val.setSuffix(" mm/s")
+        self.ui.distanceSpinBox_2.setButtonSymbols(
+            self.ui.distanceSpinBox_2.ButtonSymbols.NoButtons
+        )
+        interval = getattr(self.ui, "forceHoldIntervalSpinBox", None)
+        if interval is not None:
+            interval.setValue(self.config.force_derivative_interval_s)
+        deadband = getattr(self.ui, "forceHoldToleranceSpinBox", None)
+        if deadband is not None:
+            deadband.setValue(self.config.force_derivative_deadband_n_s)
+        step = getattr(self.ui, "forceHoldStepSpinBox", None)
+        if step is not None:
+            step.setValue(self.config.force_derivative_z_step_mm)
+        self._on_force_hold_toggled(
+            bool(
+                getattr(self.ui, "forceHoldEnableCheckBox", None)
+                and self.ui.forceHoldEnableCheckBox.isChecked()
+            ),
+            refresh=False,
+        )
+
+    def _connect_inputs(self):
+        self.ui.Forward_circle.clicked.connect(self.toggle_scan)
+        self.ui.Emergency_Stop.clicked.connect(self._on_emergency_clicked)
+        progress_signal = getattr(
+            getattr(self.motion, "motion_worker", None),
+            "scan_progress",
+            None,
+        )
+        if progress_signal is not None and hasattr(progress_signal, "connect"):
+            progress_signal.connect(self._on_motion_progress)
+        confirm_button = getattr(self.ui, "scanLoadConfirmButton", None)
+        confirm_signal = getattr(confirm_button, "toggled", None)
+        if confirm_signal is not None:
+            confirm_signal.connect(self._on_load_confirmation_changed)
+        force_hold_checkbox = getattr(self.ui, "forceHoldEnableCheckBox", None)
+        force_hold_signal = getattr(force_hold_checkbox, "toggled", None)
+        if force_hold_signal is not None:
+            force_hold_signal.connect(self._on_force_hold_toggled)
+        for widget in (
+            self.ui.Axis_choice,
+            self.ui.direction_choice,
+            self.ui.Circle_times,
+            self.ui.Gap_time,
+            self.ui.Speed_Setting_val,
+            self.ui.sampleRateSpinBox,
+        ):
+            if widget is None:
+                continue
+            signal = getattr(widget, "currentIndexChanged", None)
+            if signal is None:
+                signal = getattr(widget, "valueChanged", None)
+            if signal is not None:
+                signal.connect(self.update_preview)
+
+        for widget in (
+            getattr(self.ui, "forceHoldToleranceSpinBox", None),
+            getattr(self.ui, "forceHoldStepSpinBox", None),
+            getattr(self.ui, "forceHoldIntervalSpinBox", None),
+        ):
+            if widget is not None and hasattr(widget, "valueChanged"):
+                widget.valueChanged.connect(self._on_force_hold_parameter_changed)
+
+        for index in range(16):
+            checkbox = getattr(self.ui, f"ai{index}CheckBox", None)
+            signal = getattr(checkbox, "stateChanged", None)
+            if signal is not None:
+                signal.connect(self.update_preview)
+
+    def _on_emergency_clicked(self):
+        if self.state is ScanWorkflowState.PREPARING:
+            self._fail(
+                self._t("scan.emergency_preparation"),
+                runtime_status=RuntimeStatus.WARNING,
+            )
+
+    def _on_load_confirmation_changed(self, checked):
+        if self.running:
+            return
+        if checked:
+            measured, _sample_clock = self._force_snapshot()
+            if measured is None:
+                measured = getattr(self.force, "latest_force", 0.0)
+            self._confirmed_force_n = float(measured)
+            self._load_confirmed_at = datetime.now().astimezone().isoformat(
+                timespec="seconds"
+            )
+        else:
+            self._confirmed_force_n = None
+            self._load_confirmed_at = ""
+        self._last_result = None
+        self._last_failure = None
+        self.ui.scanLoadConfirmed = bool(checked)
+        self._set_runtime_scan(RuntimeStatus.READY)
+        self.refresh_readiness(preserve_result=False)
+
+    def _on_force_hold_toggled(self, checked, refresh=True):
+        enabled = bool(checked) and not self._controls_locked
+        for widget_name in (
+            "forceHoldIntervalSpinBox",
+            "forceHoldToleranceSpinBox",
+            "forceHoldStepSpinBox",
+        ):
+            widget = getattr(self.ui, widget_name, None)
+            if widget is not None and hasattr(widget, "setEnabled"):
+                widget.setEnabled(enabled)
+        if refresh and not self.running:
+            self.update_preview()
+        else:
+            self._update_force_hold_status()
+
+    def _on_force_hold_parameter_changed(self, *_args):
+        app_config = getattr(self, "config", None)
+        interval = getattr(self.ui, "forceHoldIntervalSpinBox", None)
+        deadband = getattr(self.ui, "forceHoldToleranceSpinBox", None)
+        step = getattr(self.ui, "forceHoldStepSpinBox", None)
+        if interval is not None and app_config is not None:
+            app_config.force_derivative_interval_s = float(interval.value())
+        if deadband is not None and app_config is not None:
+            app_config.force_derivative_deadband_n_s = float(deadband.value())
+        if step is not None and app_config is not None:
+            app_config.force_derivative_z_step_mm = float(step.value())
+        if getattr(self, "on_config_saved", None) is not None:
+            self.on_config_saved()
+        self.update_preview()
+
+    def _set_controls_locked(self, locked):
+        widget_names = [*self.INTERLOCK_WIDGETS]
+        widget_names.extend(f"ai{index}CheckBox" for index in range(16))
+
+        if locked:
+            if not self._controls_locked:
+                self._control_enabled_snapshot = {}
+                for widget_name in widget_names:
+                    widget = getattr(self.ui, widget_name, None)
+                    if widget is not None and hasattr(widget, "isEnabled"):
+                        self._control_enabled_snapshot[widget_name] = widget.isEnabled()
+                self._controls_locked = True
+            for widget_name in widget_names:
+                widget = getattr(self.ui, widget_name, None)
+                if widget is not None and hasattr(widget, "setEnabled"):
+                    widget.setEnabled(False)
+        else:
+            for widget_name, enabled in self._control_enabled_snapshot.items():
+                widget = getattr(self.ui, widget_name, None)
+                if widget is not None and hasattr(widget, "setEnabled"):
+                    widget.setEnabled(enabled)
+            self._control_enabled_snapshot = {}
+            self._controls_locked = False
+
+        stop_button = getattr(self.ui, "Emergency_Stop", None)
+        if stop_button is not None and hasattr(stop_button, "setEnabled"):
+            stop_button.setEnabled(True)
+
+    def _update_action_text(self):
+        key = {
+            ScanWorkflowState.IDLE: "button.scan.start",
+            ScanWorkflowState.PREPARING: "button.scan.preparing",
+            ScanWorkflowState.RUNNING: "button.scan.running",
+            ScanWorkflowState.SAVING: "button.scan.saving",
+        }[self.state]
+        self.ui.Forward_circle.setText(self._t(key))
+
+    def _set_feedback(self, text, warning, summary=None):
+        self.ui.scanReadinessSummaryText = summary or text
+        self._set_quality_text(text, warning)
+
+    def _set_quality_text(self, text, warning):
+        self.ui.scanQualityLabel.setText(text)
+        color = "#F5A623" if warning else "#9CA3AF"
+        self.ui.scanQualityLabel.setStyleSheet(f"color: {color};")
+
+    def _set_phase(self, phase):
+        self.ui.scanWorkflowPhase = str(phase)
+
+    def _show_result(self, result):
+        is_new_result = getattr(self.ui, "scanLastResult", None) is not result
+        self.ui.scanLastResult = result
+        if is_new_result:
+            results_page = getattr(self.ui, "scanResultsPage", None)
+            tabs = getattr(self.ui, "tabWidget_3", None)
+            if (
+                results_page is not None
+                and tabs is not None
+                and hasattr(tabs, "setCurrentWidget")
+            ):
+                tabs.setCurrentWidget(results_page)
+        tooltip_lines = []
+        if result.detail:
+            tooltip_lines.append(f"Quality: {result.detail}")
+        tooltip_lines.extend(
+            f"{name}: {path}" for name, path in sorted(result.paths.items())
+        )
+        tooltip = "\n".join(tooltip_lines)
+        self.ui.scanQualityLabel.setToolTip(tooltip)
+
+        if result.missing_streams:
+            missing = ", ".join(result.missing_streams)
+            self._set_phase("error")
+            self._set_feedback(
+                self._t("scan.saved_incomplete_short"),
+                warning=True,
+                summary=self._t(
+                    "scan.saved_incomplete_summary",
+                    group=result.group_id,
+                    streams=missing,
+                    folder=result.save_dir,
+                ),
+            )
+        elif result.outcome == "warning":
+            self._set_phase("warning")
+            summary_key = (
+                "scan.saved_spatial_warning_summary"
+                if result.led_bins_expected
+                else "scan.saved_warning_summary"
+            )
+            self._set_feedback(
+                self._t("scan.saved_warning_short", group=result.group_id),
+                warning=True,
+                summary=self._t(
+                    summary_key,
+                    group=result.group_id,
+                    files=result.file_count,
+                    covered=result.led_bins_covered,
+                    expected=result.led_bins_expected,
+                    samples=result.minimum_samples_per_led,
+                    folder=result.save_dir,
+                ),
+            )
+        else:
+            self._set_phase("completed")
+            summary_key = (
+                "scan.saved_spatial_summary"
+                if result.led_bins_expected
+                else "scan.saved_summary"
+            )
+            self._set_feedback(
+                self._t("scan.saved_short", group=result.group_id),
+                warning=False,
+                summary=self._t(
+                    summary_key,
+                    group=result.group_id,
+                    files=result.file_count,
+                    covered=result.led_bins_covered,
+                    expected=result.led_bins_expected,
+                    samples=result.minimum_samples_per_led,
+                    folder=result.save_dir,
+                ),
+            )
+
+    def _set_runtime_scan(self, status, detail=""):
+        if self.runtime is not None:
+            self.runtime.set("scan", status, detail)
+
+    def _direction(self):
+        if hasattr(self.ui.direction_choice, "currentData"):
+            value = self.ui.direction_choice.currentData()
+            if value in (-1, 1):
+                return value
+        return -1 if "reverse" in self.ui.direction_choice.currentText().lower() else 1
+
+    def _load_confirmed(self):
+        button = getattr(self.ui, "scanLoadConfirmButton", None)
+        return bool(
+            button is not None
+            and hasattr(button, "isChecked")
+            and button.isChecked()
+        )
+
+    def _reset_load_confirmation(self):
+        button = getattr(self.ui, "scanLoadConfirmButton", None)
+        if button is not None and hasattr(button, "setChecked"):
+            previous = None
+            if hasattr(button, "blockSignals"):
+                previous = button.blockSignals(True)
+            button.setChecked(False)
+            if previous is not None:
+                button.blockSignals(previous)
+        self.ui.scanLoadConfirmed = False
+        self._confirmed_force_n = None
+        self._load_confirmed_at = ""
+
+    def _selected_daq_channels(self):
+        return [
+            f"ai{index}"
+            for index in range(16)
+            if hasattr(self.ui, f"ai{index}CheckBox")
+            and getattr(self.ui, f"ai{index}CheckBox").isChecked()
+        ]
+
+    def _daq_device_name(self):
+        daq = getattr(self, "daq", None)
+        getter = getattr(daq, "selected_device_name", None)
+        if callable(getter):
+            return getter()
+        return selected_device_name(getattr(self.ui, "daqDeviceComboBox", None))
+
+    def _daq_device_info(self):
+        getter = getattr(getattr(self, "daq", None), "selected_device_info", None)
+        return getter() if callable(getter) else None
+
+    def _t(self, key, **values):
+        if self.translator is None:
+            return key.format(**values) if values else key
+        return self.translator(key, **values)
+
+    @staticmethod
+    def _single_shot(delay_ms, callback):
+        from PySide6.QtCore import QTimer
+
+        QTimer.singleShot(delay_ms, callback)

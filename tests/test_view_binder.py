@@ -1,6 +1,8 @@
 import sys
 import types
 
+import pytest
+
 from modules.app_state import AppState
 
 
@@ -17,11 +19,14 @@ class DummySizePolicy:
 
 
 class DummyLabel:
-    def __init__(self):
+    def __init__(self, *args):
         self.text = ""
         self.style = ""
         self.alignment = None
         self.minimum_width = None
+        self.tooltip = ""
+        self.word_wrap = False
+        self.visible = True
 
     def setStyleSheet(self, style):
         self.style = style
@@ -35,10 +40,98 @@ class DummyLabel:
     def setText(self, text):
         self.text = text
 
+    def setToolTip(self, tooltip):
+        self.tooltip = tooltip
+
+    def setWordWrap(self, enabled):
+        self.word_wrap = enabled
+
+    def setVisible(self, visible):
+        self.visible = visible
+
+
+class DummyCreatedWidget(DummyLabel):
+    def __init__(self, *args):
+        super().__init__(*args)
+        self.object_name = ""
+        self.checked = False
+        self.enabled = True
+        self.value = 0.0
+        self.minimum = 0.0
+        self.maximum = 0.0
+        self.decimals = 0
+        self.step = 0.0
+        self.suffix = ""
+        self.tooltip = ""
+
+    def setObjectName(self, name):
+        self.object_name = name
+
+    def setChecked(self, checked):
+        self.checked = checked
+
+    def isChecked(self):
+        return self.checked
+
+    def setEnabled(self, enabled):
+        self.enabled = enabled
+
+    def isEnabled(self):
+        return self.enabled
+
+    def setRange(self, minimum, maximum):
+        self.minimum = minimum
+        self.maximum = maximum
+
+    def setDecimals(self, decimals):
+        self.decimals = decimals
+
+    def setSingleStep(self, step):
+        self.step = step
+
+    def setValue(self, value):
+        self.value = value
+
+    def setSuffix(self, suffix):
+        self.suffix = suffix
+
+    def setKeyboardTracking(self, value):
+        pass
+
+    def setToolTip(self, text):
+        self.tooltip = text
+
+    def setWordWrap(self, enabled):
+        self.word_wrap = enabled
+
+
+class DummyHBoxLayout:
+    def __init__(self, parent=None):
+        self.parent = parent
+        self.widgets = []
+        self.margins = None
+        self.spacing = None
+
+    def setContentsMargins(self, *margins):
+        self.margins = margins
+
+    def setSpacing(self, spacing):
+        self.spacing = spacing
+
+    def addWidget(self, widget, stretch=0):
+        self.widgets.append((widget, stretch))
+
+    def removeWidget(self, widget):
+        self.widgets = [item for item in self.widgets if item[0] is not widget]
+
 
 qtcore.Qt = DummyQt
 qtwidgets.QLabel = DummyLabel
 qtwidgets.QSizePolicy = DummySizePolicy
+qtwidgets.QCheckBox = DummyCreatedWidget
+qtwidgets.QDoubleSpinBox = DummyCreatedWidget
+qtwidgets.QHBoxLayout = DummyHBoxLayout
+qtwidgets.QWidget = DummyCreatedWidget
 
 pyside6 = types.ModuleType("PySide6")
 pyside6.QtCore = qtcore
@@ -114,6 +207,9 @@ class DummyTextWidget:
         self.maximum_width = None
         self.maximum_height = None
         self.visible = True
+        self.prefix = ""
+        self.suffix = ""
+        self.tooltip = ""
 
     def setText(self, text):
         self.text = text
@@ -132,6 +228,15 @@ class DummyTextWidget:
 
     def setVisible(self, visible):
         self.visible = visible
+
+    def setPrefix(self, prefix):
+        self.prefix = prefix
+
+    def setSuffix(self, suffix):
+        self.suffix = suffix
+
+    def setToolTip(self, tooltip):
+        self.tooltip = tooltip
 
 
 class DummyComboBox(DummyTextWidget):
@@ -157,9 +262,17 @@ class DummySpinBox(DummyTextWidget):
     def __init__(self, value=0):
         super().__init__()
         self.value = value
+        self.decimals = None
+        self.suffix = ""
 
     def setValue(self, value):
         self.value = value
+
+    def setDecimals(self, decimals):
+        self.decimals = decimals
+
+    def setSuffix(self, suffix):
+        self.suffix = suffix
 
 
 class DummyStatusBar:
@@ -239,6 +352,8 @@ class DummyUi:
         self.groupBox_5 = DummyGroupBox()
         self.groupBox_6 = DummyGroupBox()
         self.groupBox_7 = DummyGroupBox()
+        self.widget_5 = DummyTextWidget()
+        self.daqDeviceComboBox = DummyTextWidget()
         self.startStopButton = DummyTextWidget()
         self.aoControlButton = DummyTextWidget()
         self.recorderStartButton = DummyTextWidget()
@@ -257,7 +372,7 @@ class DummyUi:
         self.forceVoltageRangeLabel = DummyTextWidget()
         self.forceVoltageRangeComboBox = DummyTextWidget()
         self.forceFullScaleLabel = DummyTextWidget()
-        self.forceFullScaleSpinBox = DummyTextWidget()
+        self.forceFullScaleSpinBox = DummySpinBox(100.0)
         self.totalForceLabel = DummyTextWidget()
         self.Force1_Label = DummyTextWidget()
         self.Force2_Label = DummyTextWidget()
@@ -274,6 +389,8 @@ class DummyUi:
         self.Forward_circle = DummyTextWidget()
         self.Backward_circle = DummyTextWidget()
         self.label_13 = DummyTextWidget()
+        self.label = DummyTextWidget()
+        self.sampleRateSpinBox = DummyTextWidget()
         self.logTextEdit = DummyTextWidget()
         self.ivModeComboBox = DummyTextWidget()
         self.ivRepeatSpinBox = DummyTextWidget()
@@ -281,8 +398,17 @@ class DummyUi:
         self.ivStopSpinBox = DummyTextWidget()
         self.ivStepSpinBox = DummyTextWidget()
         self.ivControlButton = DummyTextWidget()
+        self.label_3 = DummyTextWidget()
+        self.label_4 = DummyTextWidget()
+        self.label_5 = DummyTextWidget()
+        self.label_9 = DummyTextWidget()
+        self.tab_8 = DummyTextWidget()
+        self.gridLayout_2 = DummyLayout()
         self.gridLayout_3 = DummyLayout()
         self.gridLayout_6 = DummyLayout()
+        self.gridLayout_8 = DummyLayout()
+        self.gridLayout_9 = DummyLayout()
+        self.gridLayout_10 = DummyLayout()
         self.gridLayout_11 = DummyLayout()
         self.daqPlotWidget = DummySurface()
         self.forcePlotWidget = DummySurface()
@@ -305,20 +431,20 @@ def test_setup_names_workbench_sections_and_status_bar():
 
     binder.setup()
 
-    assert ui.title == "NI-USB-6259 Control Workbench"
-    assert ui.minimum_size == (1280, 820)
+    assert ui.title == "NI DAQ Control Workbench"
+    assert ui.minimum_size == (1180, 800)
     assert ui.tabWidget.labels == {0: "Camera 1", 1: "Camera 2"}
     assert ui.tabWidget_4.labels == {0: "DAQ", 1: "IV"}
     assert ui.groupBox.title == "Acquisition Control"
     assert ui.groupBox_7.title == "Channel Activity"
-    assert ui.startStopButton.text == "Start DAQ"
+    assert ui.startStopButton.text == "Stop DAQ"
     assert ui.Emergency_Stop.text == "STOP"
-    assert ui.forceDeviceLabel.text == "Dev"
+    assert ui.forceDeviceLabel.text == "Device"
     assert ui.forceVoltageRangeLabel.text == "Range"
     assert ui.statusBar().message == "Workbench ready"
     assert len(ui.statusBar().widgets) == 5
-    assert binder.status_labels["daq"].text == "DAQ: Sampling"
-    assert binder.status_labels["recording"].text == "RECORDING: On"
+    assert binder.status_labels["daq"].text == "DAQ: Running"
+    assert binder.status_labels["recording"].text == "Recording: On"
 
 
 def test_setup_removes_unused_placeholder_tabs_and_defaults_force_labels():
@@ -334,6 +460,9 @@ def test_setup_removes_unused_placeholder_tabs_and_defaults_force_labels():
     assert ui.forceModeComboBox.currentText() == "Analog Voltage"
     assert ui.forceTerminalConfigComboBox.currentText() == "DIFFERENTIAL"
     assert ui.forceSampleRateSpinBox.value == 2000
+    assert ui.forceFullScaleSpinBox.value == 98.0665
+    assert ui.forceFullScaleSpinBox.decimals == 4
+    assert ui.forceFullScaleSpinBox.suffix == " N/ch"
 
 
 def test_setup_keeps_channel_and_force_controls_readable():
@@ -342,27 +471,30 @@ def test_setup_keeps_channel_and_force_controls_readable():
 
     binder.setup()
 
-    assert 120 <= ui.groupBox_2.minimum_height <= 135
-    assert 225 <= ui.groupBox_4.minimum_height <= 240
-    assert 240 <= ui.groupBox_4.maximum_height <= 255
-    assert 100 <= ui.daqPlotWidget.minimum_height <= 115
-    assert 95 <= ui.forcePlotWidget.minimum_height <= 110
+    assert 100 <= ui.groupBox_2.minimum_height <= 106
+    assert 150 <= ui.groupBox_4.minimum_height <= 160
+    assert 185 <= ui.groupBox_4.maximum_height <= 195
+    assert 86 <= ui.daqPlotWidget.minimum_height <= 90
+    assert 165 <= ui.forcePlotWidget.minimum_height <= 175
     assert ui.groupBox_5.minimum_height >= 170
     assert ui.groupBox_5.maximum_height <= 185
-    assert ui.groupBox_6.minimum_height >= 300
-    assert ui.tabWidget_4.minimum_height >= 148
-    assert ui.tabWidget_4.maximum_height >= 168
-    assert ui.ivStartSpinBox.minimum_height == 28
-    assert ui.ivStartSpinBox.minimum_width == 120
-    assert ui.ivControlButton.minimum_width == 104
-    assert ui.totalForceLabel.minimum_width == 120
-    assert ui.totalForceLabel.maximum_width == 120
-    assert ui.Force1_Label.minimum_width == 88
-    assert ui.Force1_Label.maximum_width == 88
-    assert ui.Force1_Label.minimum_height == 22
-    assert ui.Force4_Label.minimum_width == 88
-    assert ui.Force4_Label.maximum_width == 88
-    assert ui.Force4_Label.minimum_height == 22
+    assert ui.groupBox_6.minimum_height >= 380
+    assert ui.tabWidget_4.minimum_height >= 108
+    assert ui.tabWidget_4.maximum_height >= 118
+    assert ui.widget_5.minimum_height == 68
+    assert ui.widget_5.maximum_height == 68
+    assert ui.ivStartSpinBox.minimum_height == 24
+    assert ui.ivStartSpinBox.minimum_width == 98
+    assert ui.ivModeComboBox.minimum_width == 135
+    assert ui.ivControlButton.minimum_width == 90
+    assert ui.totalForceLabel.minimum_width == 92
+    assert ui.totalForceLabel.maximum_width == 16777215
+    assert ui.Force1_Label.minimum_width == 92
+    assert ui.Force1_Label.maximum_width == 16777215
+    assert ui.Force1_Label.minimum_height == 24
+    assert ui.Force4_Label.minimum_width == 92
+    assert ui.Force4_Label.maximum_width == 16777215
+    assert ui.Force4_Label.minimum_height == 24
 
 
 def test_setup_keeps_ai_channel_checkboxes_legible():
@@ -373,9 +505,15 @@ def test_setup_keeps_ai_channel_checkboxes_legible():
 
     for index in range(16):
         checkbox = getattr(ui, f"ai{index}CheckBox")
-        assert checkbox.minimum_width == 72
+        assert checkbox.minimum_width == 50
         assert checkbox.maximum_width == 16777215
-        assert checkbox.minimum_height == 20
+        assert checkbox.minimum_height == 22
+        assert ui.gridLayout_8.widgets[(index // 6, index % 6)] is checkbox
+
+    assert ui.gridLayout_8.row_minimum_heights == {0: 22, 1: 22, 2: 22}
+    assert ui.gridLayout_8.spacing == 2
+    assert ui.gridLayout_9.margins == (6, 4, 6, 4)
+    assert ui.gridLayout_10.margins == (8, 4, 8, 4)
 
 
 def test_setup_compacts_force_panel_into_tool_rows():
@@ -385,46 +523,84 @@ def test_setup_compacts_force_panel_into_tool_rows():
     binder.setup()
 
     assert ui.gridLayout_6.widgets[(0, 1)] is ui.forceModeComboBox
-    assert ui.gridLayout_6.widgets[(3, 0)] is ui.forceStartButton
-    assert ui.gridLayout_6.widgets[(2, 1)] is ui.forceVoltageRangeComboBox
-    assert ui.gridLayout_6.widgets[(3, 2)] is ui.totalForceLabel
-    assert ui.gridLayout_6.widgets[(4, 0)] is ui.Force1_Label
-    assert ui.gridLayout_6.widgets[(4, 3)] is ui.Force4_Label
+    assert ui.gridLayout_6.widgets[(2, 0, 1, 3)] is ui.forceStartButton
+    assert ui.gridLayout_6.widgets[(1, 3)] is ui.forceVoltageRangeComboBox
+    assert ui.gridLayout_6.widgets[(2, 3, 1, 3)] is ui.forceZeroButton
+    assert ui.gridLayout_6.widgets[(3, 0, 1, 6)] is ui.forceValuesRow
+    assert [widget for widget, _stretch in ui.forceValuesRow.forceValuesLayout.widgets] == [
+        ui.totalForceLabel,
+        ui.Force1_Label,
+        ui.Force2_Label,
+        ui.Force3_Label,
+        ui.Force4_Label,
+    ]
 
 
-def test_setup_compacts_motion_loop_panel_without_hidden_lower_rows():
+def test_setup_reflows_iv_controls_without_compression():
     ui = DummyUi()
     binder = ViewBinder(ui, lambda: AppState())
 
     binder.setup()
 
-    assert ui.gridLayout_11.widgets[(0, 0)] is ui.Axis_choice
-    assert ui.gridLayout_11.widgets[(0, 1)] is ui.direction_choice
-    assert ui.gridLayout_11.widgets[(1, 0)] is ui.distanceSpinBox_2
-    assert ui.gridLayout_11.widgets[(1, 1)] is ui.Gap_time
-    assert ui.gridLayout_11.widgets[(2, 0)] is ui.Circle_times
-    assert ui.gridLayout_11.widgets[(2, 1)] is ui.label_13
-    assert ui.gridLayout_11.widgets[(3, 0)] is ui.Forward_circle
-    assert ui.gridLayout_11.widgets[(3, 1)] is ui.Speed_Setting_val
-    assert ui.gridLayout_11.widgets[(4, 0)] is ui.Backward_circle
-    assert ui.gridLayout_11.widgets[(5, 0, 1, 2)] is ui.Emergency_Stop
+    assert ui.gridLayout_2.widgets[(0, 0)] is ui.ivModeComboBox
+    assert ui.gridLayout_2.widgets[(0, 1)] is ui.ivRepeatSpinBox
+    assert ui.gridLayout_2.widgets[(0, 2)] is ui.ivControlButton
+    assert ui.gridLayout_2.widgets[(1, 0)] is ui.ivStartSpinBox
+    assert ui.gridLayout_2.widgets[(1, 1)] is ui.ivStopSpinBox
+    assert ui.gridLayout_2.widgets[(1, 2)] is ui.ivStepSpinBox
+    assert ui.ivModeLabel.visible is False
+    assert ui.ivStartSpinBox.prefix == "Start "
+    assert ui.ivStartSpinBox.suffix == " V"
+
+
+def test_setup_builds_single_scan_panel_without_loop_controls():
+    ui = DummyUi()
+    binder = ViewBinder(ui, lambda: AppState())
+
+    binder.setup()
+
+    assert ui.gridLayout_11.widgets[(0, 1)] is ui.Axis_choice
+    assert ui.gridLayout_11.widgets[(1, 1)] is ui.direction_choice
+    assert ui.gridLayout_11.widgets[(2, 1)] is ui.Circle_times
+    assert ui.gridLayout_11.widgets[(3, 1)] is ui.Gap_time
+    assert ui.gridLayout_11.widgets[(4, 1)] is ui.distanceSpinBox_2
+    assert ui.gridLayout_11.widgets[(5, 1)] is ui.Speed_Setting_val
+    assert ui.gridLayout_11.widgets[(6, 1)] is ui.sampleRateSpinBox
+    assert ui.gridLayout_11.widgets[(7, 0, 1, 2)] is ui.forceHoldEnableCheckBox
+    assert ui.gridLayout_11.widgets[(8, 1)] is ui.forceHoldIntervalSpinBox
+    assert ui.forceHoldIntervalSpinBox.value == pytest.approx(0.10)
+    assert ui.gridLayout_11.widgets[(9, 1)] is ui.forceHoldToleranceSpinBox
+    assert ui.forceHoldToleranceSpinBox.suffix == " N/s"
+    assert ui.gridLayout_11.widgets[(10, 1)] is ui.forceHoldStepSpinBox
+    assert ui.gridLayout_11.widgets[(11, 0, 1, 2)] is ui.forceHoldStatusLabel
+    assert ui.gridLayout_11.widgets[(13, 0, 1, 2)] is ui.Forward_circle
+    assert ui.gridLayout_11.widgets[(14, 0, 1, 2)] is ui.Emergency_Stop
+    assert ui.gridLayout_9.widgets[(0, 2, 1, 3)] is ui.startStopButton
+    assert ui.daqDeviceComboBox.minimum_width == 100
+    assert ui.Backward_circle.visible is False
     assert ui.label_13.visible is True
-    assert ui.Forward_circle.minimum_height == 30
-    assert ui.Backward_circle.minimum_height == 30
-    assert ui.gridLayout_11.row_stretches[6] == 1
+    assert ui.aoControlButton.minimum_width == 96
+    assert ui.Forward_circle.minimum_height == 24
+    assert ui.Forward_circle.maximum_height == 28
+    assert ui.Backward_circle.minimum_height == 24
+    assert ui.Emergency_Stop.minimum_height == 26
+    assert ui.Emergency_Stop.maximum_height == 30
+    assert ui.gridLayout_11.margins == (8, 2, 8, 2)
+    assert ui.gridLayout_11.spacing == 2
+    assert ui.gridLayout_11.row_stretches[12] == 1
     assert all(ui.gridLayout_11.row_stretches[row] == 0 for row in range(6))
     assert all(ui.gridLayout_11.row_minimum_heights[row] == 0 for row in range(9))
 
 
-def test_setup_prioritizes_camera_and_keeps_motion_as_sidebar():
+def test_setup_keeps_responsive_camera_and_motion_minimums():
     ui = DummyUi()
     binder = ViewBinder(ui, lambda: AppState())
 
     binder.setup()
 
-    assert 560 <= ui.tabWidget.minimum_width <= 620
-    assert ui.tabWidget.minimum_height >= 640
-    assert ui.tabWidget_3.minimum_width >= 360
+    assert 350 <= ui.tabWidget.minimum_width <= 380
+    assert 350 <= ui.tabWidget.minimum_height <= 380
+    assert ui.tabWidget_3.minimum_width >= 300
     assert ui.tabWidget_3.maximum_width <= 430
     assert ui.gridLayout_3.widgets[(0, 2, 2, 1)] is ui.tabWidget_3
     assert ui.gridLayout_3.widgets[(2, 2, 1, 1)] is ui.logTextEdit

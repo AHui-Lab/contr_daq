@@ -2,6 +2,8 @@ import numpy as np
 import pyqtgraph as pg
 from PySide6.QtWidgets import QVBoxLayout
 import itertools
+from modules.ui.plot_downsample import downsample_xy
+from modules.ui.i18n import Translator
 
 def generate_colors(n):
     # 高对比科研级调色板（支持 32 路）
@@ -54,13 +56,17 @@ def generate_colors(n):
 
 
 class DaqPlot:
-    MAX_DISPLAY_POINTS = 3000
+    MAX_DISPLAY_POINTS = 1200
 
-    def __init__(self, parent_widget, ui):
+    def __init__(self, parent_widget, ui, config=None, translator=None):
         self.mode = "time"  # "time" or "iv"
 
         self.parent = parent_widget
         self.ui = ui
+        self.config = config
+        self.translator = translator or Translator("en")
+        self.max_display_points = self._configured_max_display_points()
+        self.max_buffer_points = self._configured_max_buffer_points()
 
         # ===== Layout =====
         if not parent_widget.layout():
@@ -74,9 +80,12 @@ class DaqPlot:
 
         self.plot.showGrid(x=True, y=True)
         self.plot.addLegend()
+        self._enable_plot_optimizations()
 
         # ===== 状态 =====
         self.buffers = {}   # time mode buffer
+        self.time_buffers = {}
+        self.sample_counts = {}
         self.curves = {}    # channel -> PlotDataItem
 
         self.max_channels = 32
@@ -106,22 +115,43 @@ class DaqPlot:
     def set_mode_time(self):
         self.mode = "time"
         # self.clear()
-        self.plot.setLabel("bottom", "Time", units="s")
-        self.plot.setLabel("left", "Voltage", units="V")
+        self.retranslate_ui()
 
     def set_mode_iv(self):
         self.mode = "iv"
         # self.clear()
-        self.plot.setLabel("bottom", "Voltage", units="V")
-        self.plot.setLabel("left", "Current", units="A")
+        self.retranslate_ui()
+
+    def retranslate_ui(self):
+        if self.mode == "iv":
+            self.plot.setLabel("bottom", self.translator("plot.voltage"), units="V")
+            self.plot.setLabel("left", self.translator("plot.current"), units="A")
+            return
+        self.plot.setLabel("bottom", self.translator("plot.time"), units="s")
+        self.plot.setLabel("left", self.translator("plot.voltage"), units="V")
 
     # ================== 清空 ==================
     def clear(self):
         self.plot.clear()
         self.plot.addLegend()
         self.buffers.clear()
+        self.time_buffers.clear()
+        self.sample_counts.clear()
         self.curves.clear()
         self._channel_colors.clear()
+
+    def apply_config(self):
+        self.max_display_points = self._configured_max_display_points()
+        self.max_buffer_points = self._configured_max_buffer_points()
+        for ch in list(self.buffers):
+            t = self.time_buffers[ch]
+            y = self.buffers[ch]
+            t, y = self._limit_buffer_data(t, y)
+            self.time_buffers[ch] = t
+            self.buffers[ch] = y
+            if ch in self.curves:
+                display_t, display_y = self._limit_display_data(t, y)
+                self.curves[ch].setData(display_t, display_y)
 
     # ================== IV ==================
     def add_iv_point(self, channel: str, voltage: float, current: float):
@@ -146,34 +176,67 @@ class DaqPlot:
         if self.mode != "time":
             return
 
-        max_points = int(fs * time_window)
-
-        for ch, y in data.items():
-            y = np.asarray(y)
-
-            if ch not in self.buffers:
-                self.buffers[ch] = y
+        for ch, incoming in data.items():
+            if self._has_explicit_time(incoming):
+                t, y = incoming
+                t = np.asarray(t)
+                y = np.asarray(y)
+                self.sample_counts[ch] = max(
+                    self.sample_counts.get(ch, 0),
+                    int(round((t[-1] * fs) + 1)) if len(t) else 0,
+                )
             else:
-                self.buffers[ch] = np.concatenate((self.buffers[ch], y))
+                y = np.asarray(incoming)
+                start_index = self.sample_counts.get(ch, 0)
+                self.sample_counts[ch] = start_index + len(y)
+                t = (np.arange(len(y)) + start_index) / fs
 
-            self.buffers[ch] = self.buffers[ch][-max_points:]
-            t, y_display = self._display_data(self.buffers[ch], fs)
+            if ch in self.buffers:
+                y = np.concatenate((self.buffers[ch], y))
+                t = np.concatenate((self.time_buffers[ch], t))
+
+            latest_t = t[-1] if len(t) else 0.0
+            keep_mask = t >= max(0.0, latest_t - float(time_window))
+            t = t[keep_mask]
+            y = y[keep_mask]
+            t, y = self._limit_buffer_data(t, y)
+            self.time_buffers[ch] = t
+            self.buffers[ch] = y
+            display_t, display_y = self._limit_display_data(t, y)
 
             if ch not in self.curves:
                 pen = pg.mkPen(self.channel_color(ch), width=2)
                 self.curves[ch] = self.plot.plot(
-                    t, y_display, pen=pen, name=ch
+                    display_t, display_y, pen=pen, name=ch
                 )
             else:
-                self.curves[ch].setData(t, y_display)
+                self.curves[ch].setData(display_t, display_y)
 
-    def _display_data(self, values, fs):
-        if len(values) <= self.MAX_DISPLAY_POINTS:
-            return np.arange(len(values)) / fs, values
+    def _limit_display_data(self, t, y):
+        return downsample_xy(t, y, self.max_display_points)
 
-        step = int(np.ceil(len(values) / self.MAX_DISPLAY_POINTS))
-        indices = np.arange(0, len(values), step)
-        return indices / fs, values[indices]
+    def _has_explicit_time(self, incoming):
+        return (
+            isinstance(incoming, tuple)
+            and len(incoming) == 2
+        )
+
+    def _configured_max_display_points(self):
+        if self.config is None:
+            return self.MAX_DISPLAY_POINTS
+        return int(self.config.max_display_points)
+
+    def _configured_max_buffer_points(self):
+        return max(self.max_display_points * 4, self.max_display_points + 1)
+
+    def _limit_buffer_data(self, t, y):
+        return downsample_xy(t, y, self.max_buffer_points)
+
+    def _enable_plot_optimizations(self):
+        if hasattr(self.plot, "setClipToView"):
+            self.plot.setClipToView(True)
+        if hasattr(self.plot, "setDownsampling"):
+            self.plot.setDownsampling(auto=True, mode="peak")
 
     # ================== Y 轴 ==================
     def on_auto_range(self, checked: bool):

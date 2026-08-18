@@ -63,12 +63,22 @@ class DummyLedManager:
         self.currents = currents
 
 
-def test_on_iv_point_updates_plot_and_led_manager():
+class DummyRecorder:
+    def __init__(self):
+        self.points = []
+
+    def add_iv_point(self, channel, voltage, current):
+        self.points.append((channel, voltage, current))
+
+
+def test_on_iv_point_updates_plot_led_manager_and_recorder():
     plot = DummyPlot()
     led_manager = DummyLedManager()
-    controller = IVController(DummyUi(), plot, led_manager)
+    recorder = DummyRecorder()
+    controller = IVController(DummyUi(), plot, led_manager, recorder=recorder)
 
     controller.on_iv_point("ai0", 1.2, 0.03)
 
     assert plot.points == [("ai0", 1.2, 0.03)]
     assert led_manager.currents == {"ai0": 0.03}
+    assert recorder.points == [("ai0", 1.2, 0.03)]

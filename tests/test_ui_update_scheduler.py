@@ -50,7 +50,7 @@ def test_ui_update_scheduler_uses_separate_refresh_intervals():
 
     scheduler.start()
 
-    assert [timer.interval for timer in DummyTimer.created] == [66, 100, 250]
+    assert [timer.interval for timer in DummyTimer.created] == [100, 500, 500]
 
     for timer in DummyTimer.created:
         timer.timeout.callback()
