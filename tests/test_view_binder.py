@@ -1,6 +1,8 @@
 import sys
 import types
 
+import pytest
+
 from modules.app_state import AppState
 
 
@@ -565,12 +567,10 @@ def test_setup_builds_single_scan_panel_without_loop_controls():
     assert ui.gridLayout_11.widgets[(5, 1)] is ui.Speed_Setting_val
     assert ui.gridLayout_11.widgets[(6, 1)] is ui.sampleRateSpinBox
     assert ui.gridLayout_11.widgets[(7, 0, 1, 2)] is ui.forceHoldEnableCheckBox
-    assert (
-        ui.gridLayout_11.widgets[(8, 0, 1, 2)]
-        is ui.forceHoldFastResponseCheckBox
-    )
-    assert ui.forceHoldFastResponseCheckBox.checked is False
+    assert ui.gridLayout_11.widgets[(8, 1)] is ui.forceHoldIntervalSpinBox
+    assert ui.forceHoldIntervalSpinBox.value == pytest.approx(0.10)
     assert ui.gridLayout_11.widgets[(9, 1)] is ui.forceHoldToleranceSpinBox
+    assert ui.forceHoldToleranceSpinBox.suffix == " N/s"
     assert ui.gridLayout_11.widgets[(10, 1)] is ui.forceHoldStepSpinBox
     assert ui.gridLayout_11.widgets[(11, 0, 1, 2)] is ui.forceHoldStatusLabel
     assert ui.gridLayout_11.widgets[(13, 0, 1, 2)] is ui.Forward_circle

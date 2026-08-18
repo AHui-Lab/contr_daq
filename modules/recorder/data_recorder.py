@@ -268,6 +268,8 @@ class DataRecorder:
         accumulated_z_mm,
         z_position_pulse,
         status,
+        derivative_n_s=0.0,
+        derivative_interval_s=0.0,
     ):
         with self._lock:
             if not self.recording or not self._within_capture(source_monotonic):
@@ -278,6 +280,8 @@ class DataRecorder:
                     float(measured_force_n),
                     float(target_force_n),
                     float(error_n),
+                    float(derivative_n_s),
+                    float(derivative_interval_s),
                     int(direction),
                     float(step_mm),
                     float(accumulated_z_mm),
@@ -390,6 +394,8 @@ class DataRecorder:
                             "measured_force(N)",
                             "target_force(N)",
                             "error(N)",
+                            "force_derivative(N/s)",
+                            "derivative_interval(s)",
                             "z_direction",
                             "z_step(mm)",
                             "accumulated_z(mm)",

@@ -24,10 +24,17 @@ class AppConfig:
     force_safety_rise_rate_n_s: float = 0.0
     force_safety_retract_enabled: bool = False
     force_safety_retract_mm: float = 0.002
+    force_derivative_interval_s: float = 0.10
+    force_derivative_deadband_n_s: float = 1.0
+    force_derivative_z_step_mm: float = 0.0005
+    force_derivative_measurement_window_s: float = 0.05
+    force_derivative_max_offset_mm: float = 0.05
+    force_derivative_max_error_n: float = 2.0
     force_commission_tolerance_n: float = 0.2
     force_commission_z_step_mm: float = 0.0001
     force_commission_verify_distance_mm: float = 0.002
     force_commission_verify_delta_n: float = 0.2
+    force_commission_verify_settle_s: float = 1.0
     force_commission_control_interval_s: float = 0.15
     force_commission_confirm_s: float = 0.05
     force_commission_max_offset_mm: float = 0.01
@@ -64,6 +71,29 @@ class AppConfig:
         self.force_safety_retract_mm = max(
             float(self.force_safety_retract_mm), 0.0001
         )
+        self.force_derivative_interval_s = min(
+            max(float(self.force_derivative_interval_s), 0.02),
+            5.0,
+        )
+        self.force_derivative_deadband_n_s = min(
+            max(float(self.force_derivative_deadband_n_s), 0.0),
+            10000.0,
+        )
+        self.force_derivative_z_step_mm = min(
+            max(float(self.force_derivative_z_step_mm), 0.0001),
+            0.01,
+        )
+        self.force_derivative_measurement_window_s = min(
+            max(float(self.force_derivative_measurement_window_s), 0.005),
+            self.force_derivative_interval_s,
+        )
+        self.force_derivative_max_offset_mm = max(
+            float(self.force_derivative_max_offset_mm),
+            self.force_derivative_z_step_mm,
+        )
+        self.force_derivative_max_error_n = max(
+            float(self.force_derivative_max_error_n), 0.1
+        )
         self.force_commission_tolerance_n = max(
             float(self.force_commission_tolerance_n), 0.001
         )
@@ -73,10 +103,14 @@ class AppConfig:
         )
         self.force_commission_verify_distance_mm = min(
             max(float(self.force_commission_verify_distance_mm), 0.0001),
-            0.01,
+            0.05,
         )
         self.force_commission_verify_delta_n = max(
             float(self.force_commission_verify_delta_n), 0.1
+        )
+        self.force_commission_verify_settle_s = min(
+            max(float(self.force_commission_verify_settle_s), 0.2),
+            5.0,
         )
         self.force_commission_control_interval_s = max(
             float(self.force_commission_control_interval_s), 0.02

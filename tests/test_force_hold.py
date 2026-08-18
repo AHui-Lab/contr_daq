@@ -3,25 +3,16 @@ import pytest
 from modules.workflow.force_hold import ForceHoldConfig, ForceHoldController
 
 
-def test_force_hold_defaults_use_conservative_large_error_limit():
-    config = ForceHoldConfig(enabled=True)
-
-    assert config.hard_error_n == pytest.approx(1.0)
-    assert config.max_offset_mm == pytest.approx(0.05)
-    assert config.fast_response is False
-    assert config.measurement_window_s == pytest.approx(0.05)
-
-
 def _armed_controller(**overrides):
     values = {
         "enabled": True,
-        "tolerance_n": 0.2,
+        "derivative_interval_s": 0.10,
+        "derivative_deadband_n_s": 1.0,
         "z_step_mm": 0.002,
-        "control_interval_s": 0.15,
-        "outside_confirm_s": 0.05,
+        "measurement_window_s": 0.05,
         "signal_timeout_s": 0.25,
         "max_offset_mm": 0.05,
-        "hard_error_n": 2.0,
+        "hard_error_n": 3.0,
     }
     values.update(overrides)
     controller = ForceHoldController()
@@ -29,92 +20,119 @@ def _armed_controller(**overrides):
     return controller
 
 
-def test_force_hold_stays_idle_inside_deadband():
+def test_force_derivative_defaults_are_fixed_period_and_noise_guarded():
+    config = ForceHoldConfig(enabled=True)
+
+    assert config.derivative_interval_s == pytest.approx(0.10)
+    assert config.derivative_deadband_n_s == pytest.approx(1.0)
+    assert config.z_step_mm == pytest.approx(0.0005)
+    assert config.metadata()["force_hold_control_mode"] == "derivative"
+
+
+def test_force_derivative_rejects_averaging_window_longer_than_time_step():
+    with pytest.raises(ValueError, match="averaging window"):
+        ForceHoldConfig(
+            enabled=True,
+            derivative_interval_s=0.02,
+            measurement_window_s=0.05,
+        ).validate()
+
+
+def test_controller_collects_baseline_and_waits_for_fixed_time_step():
     controller = _armed_controller()
 
-    decision = controller.evaluate(9.9, sample_monotonic=1.2, now=1.2)
+    baseline = controller.evaluate(10.0, sample_monotonic=1.00, now=1.00)
+    early = controller.evaluate(10.2, sample_monotonic=1.05, now=1.05)
+
+    assert (baseline.kind, baseline.reason) == ("wait", "collecting_baseline")
+    assert (early.kind, early.reason) == ("wait", "sampling_interval")
+
+
+def test_positive_derivative_moves_toward_lower_force():
+    controller = _armed_controller()
+    controller.evaluate(10.0, 1.00, 1.00)
+
+    decision = controller.evaluate(10.2, 1.10, 1.10)
+
+    assert decision.kind == "correct"
+    assert decision.derivative_n_s == pytest.approx(2.0)
+    assert decision.sample_interval_s == pytest.approx(0.10)
+    assert decision.direction == -1
+    assert decision.step_mm == pytest.approx(0.002)
+
+
+def test_negative_derivative_moves_toward_higher_force():
+    controller = _armed_controller()
+    controller.evaluate(10.0, 1.00, 1.00)
+
+    decision = controller.evaluate(9.8, 1.10, 1.10)
+
+    assert decision.kind == "correct"
+    assert decision.derivative_n_s == pytest.approx(-2.0)
+    assert decision.direction == 1
+
+
+def test_derivative_uses_configured_fixed_denominator_when_tick_is_late():
+    controller = _armed_controller(derivative_interval_s=0.10)
+    controller.evaluate(10.0, 1.00, 1.00)
+
+    decision = controller.evaluate(10.3, 1.16, 1.16)
+
+    assert decision.derivative_n_s == pytest.approx(3.0)
+    assert decision.sample_interval_s == pytest.approx(0.10)
+
+
+def test_derivative_deadband_prevents_quantization_chatter():
+    controller = _armed_controller(derivative_deadband_n_s=1.1)
+    controller.evaluate(10.0, 1.00, 1.00)
+
+    decision = controller.evaluate(10.1, 1.10, 1.10)
 
     assert decision.kind == "hold"
+    assert decision.derivative_n_s == pytest.approx(1.0)
     assert controller.snapshot()["force_hold_correction_count"] == 0
 
 
-def test_low_force_requests_z_positive_after_error_is_confirmed():
+def test_controller_waits_for_a_new_force_sample_at_due_time():
     controller = _armed_controller()
+    controller.evaluate(10.0, 1.00, 1.00)
 
-    assert controller.evaluate(9.5, 1.20, 1.20).kind == "wait"
-    decision = controller.evaluate(9.5, 1.26, 1.26)
+    decision = controller.evaluate(10.0, 1.00, 1.10)
 
-    assert decision.kind == "correct"
-    assert decision.direction == 1
-    assert decision.step_mm == pytest.approx(0.002)
-    controller.accept(decision)
-    assert controller.snapshot()["force_hold_accumulated_z_mm"] == pytest.approx(0.002)
+    assert (decision.kind, decision.reason) == ("wait", "waiting_new_sample")
 
 
-def test_high_force_requests_z_negative():
-    controller = _armed_controller()
+def test_accept_records_fixed_z_step_and_total_travel_limit():
+    controller = _armed_controller(z_step_mm=0.002, max_offset_mm=0.002)
+    controller.evaluate(10.0, 1.00, 1.00)
+    first = controller.evaluate(10.2, 1.10, 1.10)
+    controller.accept(first)
+    controller.evaluate(10.2, 1.20, 1.20)
+    second = controller.evaluate(10.4, 1.30, 1.30)
 
-    controller.evaluate(10.5, 1.20, 1.20)
-    decision = controller.evaluate(10.5, 1.26, 1.26)
-
-    assert decision.kind == "correct"
-    assert decision.direction == -1
-
-
-def test_force_hold_does_not_chase_a_single_transient():
-    controller = _armed_controller()
-
-    assert controller.evaluate(9.5, 1.20, 1.20).kind == "wait"
-    assert controller.evaluate(10.0, 1.22, 1.22).kind == "hold"
-    assert controller.evaluate(9.5, 1.24, 1.24).kind == "wait"
+    assert controller.snapshot()["force_hold_accumulated_z_mm"] == pytest.approx(
+        -0.002
+    )
+    assert (second.kind, second.reason) == ("abort", "z_travel_limit")
 
 
-def test_fast_response_can_request_a_correction_after_50_ms():
-    controller = _armed_controller(
-        fast_response=True,
-        control_interval_s=0.05,
-        outside_confirm_s=0.02,
-        measurement_window_s=0.02,
-        signal_timeout_s=0.15,
+def test_controller_aborts_on_stale_signal_and_reference_deviation():
+    stale = _armed_controller().evaluate(10.0, sample_monotonic=1.0, now=1.5)
+    excessive = _armed_controller(hard_error_n=1.0).evaluate(
+        8.0, sample_monotonic=1.1, now=1.1
     )
 
-    assert controller.evaluate(9.5, 1.01, 1.01).kind == "wait"
-    assert controller.evaluate(9.5, 1.03, 1.03).kind == "wait"
-    decision = controller.evaluate(9.5, 1.05, 1.05)
-
-    assert decision.kind == "correct"
-    assert decision.direction == 1
-
-
-def test_force_hold_aborts_on_stale_signal_and_large_error():
-    stale = _armed_controller().evaluate(10.0, sample_monotonic=1.0, now=1.5)
-    excessive = _armed_controller().evaluate(7.0, sample_monotonic=1.1, now=1.1)
-
     assert (stale.kind, stale.reason) == ("abort", "stale_signal")
-    assert (excessive.kind, excessive.reason) == ("abort", "force_error_limit")
+    assert (excessive.kind, excessive.reason) == (
+        "abort",
+        "force_error_limit",
+    )
 
 
-def test_force_hold_aborts_before_exceeding_total_z_budget():
-    controller = _armed_controller(z_step_mm=0.002, max_offset_mm=0.004)
+def test_z_direction_mapping_can_be_reversed_after_machine_verification():
+    controller = _armed_controller(z_positive_increases_force=False)
+    controller.evaluate(10.0, 1.00, 1.00)
 
-    for start in (1.2, 1.5):
-        controller.evaluate(9.5, start, start)
-        decision = controller.evaluate(9.5, start + 0.06, start + 0.06)
-        assert decision.kind == "correct"
-        controller.accept(decision)
+    decision = controller.evaluate(10.2, 1.10, 1.10)
 
-    controller.evaluate(9.5, 1.8, 1.8)
-    decision = controller.evaluate(9.5, 1.86, 1.86)
-
-    assert (decision.kind, decision.reason) == ("abort", "z_travel_limit")
-
-
-def test_force_hold_target_must_be_positive_but_may_be_below_tolerance():
-    controller = ForceHoldController()
-
-    with pytest.raises(ValueError, match="target"):
-        controller.arm(ForceHoldConfig(enabled=True), target_force_n=0.0, now=1.0)
-
-    controller.arm(ForceHoldConfig(enabled=True), target_force_n=0.1, now=1.0)
-
-    assert controller.snapshot()["force_hold_target_n"] == pytest.approx(0.1)
+    assert decision.direction == 1

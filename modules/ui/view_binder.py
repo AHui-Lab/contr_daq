@@ -116,9 +116,9 @@ class ViewBinder:
             "scanLedSizeLabel": t("label.led_size"),
             "scanDistanceLabel": t("label.scan_distance"),
             "forceHoldEnableCheckBox": t("force_hold.enable"),
-            "forceHoldFastResponseCheckBox": t("force_hold.fast_response"),
             "forceHoldToleranceLabel": t("force_hold.tolerance"),
             "forceHoldStepLabel": t("force_hold.z_step"),
+            "forceHoldIntervalLabel": t("force_hold.interval"),
             "label_2": t("label.device"),
             "label": t("label.rate_hz"),
             "label_3": t("label.repeat"),
@@ -615,6 +615,7 @@ class ViewBinder:
             "sampleRateSpinBox",
             "forceHoldToleranceSpinBox",
             "forceHoldStepSpinBox",
+            "forceHoldIntervalSpinBox",
             "startStopButton",
             "aoChannelComboBox",
             "aoVoltageSpinBox",
@@ -645,7 +646,7 @@ class ViewBinder:
             "distanceSpinBox_2",
             "Speed_Setting_val",
             "sampleRateSpinBox",
-            "forceHoldFastResponseCheckBox",
+            "forceHoldIntervalSpinBox",
         ):
             widget = getattr(self.ui, widget_name, None)
             if widget is not None and hasattr(widget, "setStyleSheet"):
@@ -691,6 +692,7 @@ class ViewBinder:
             "forceHoldStatusLabel",
             "forceHoldToleranceLabel",
             "forceHoldStepLabel",
+            "forceHoldIntervalLabel",
         ):
             if getattr(self.ui, object_name, None) is None:
                 parent = getattr(self.ui, "groupBox_6", None)
@@ -708,14 +710,10 @@ class ViewBinder:
             checkbox.setObjectName("forceHoldEnableCheckBox")
             checkbox.setChecked(False)
             self.ui.forceHoldEnableCheckBox = checkbox
-        if getattr(self.ui, "forceHoldFastResponseCheckBox", None) is None:
-            checkbox = QCheckBox(parent)
-            checkbox.setObjectName("forceHoldFastResponseCheckBox")
-            checkbox.setChecked(False)
-            self.ui.forceHoldFastResponseCheckBox = checkbox
         for object_name in (
             "forceHoldToleranceSpinBox",
             "forceHoldStepSpinBox",
+            "forceHoldIntervalSpinBox",
         ):
             if getattr(self.ui, object_name, None) is None:
                 spinbox = QDoubleSpinBox(parent)
@@ -724,17 +722,23 @@ class ViewBinder:
                 setattr(self.ui, object_name, spinbox)
 
         tolerance = self.ui.forceHoldToleranceSpinBox
-        tolerance.setRange(0.01, 10.0)
+        tolerance.setRange(0.0, 10000.0)
         tolerance.setDecimals(2)
-        tolerance.setSingleStep(0.05)
-        tolerance.setValue(0.20)
-        tolerance.setSuffix(" N")
+        tolerance.setSingleStep(0.1)
+        tolerance.setValue(1.0)
+        tolerance.setSuffix(" N/s")
         step = self.ui.forceHoldStepSpinBox
         step.setRange(0.0001, 0.0100)
         step.setDecimals(4)
         step.setSingleStep(0.0005)
         step.setValue(0.0020)
         step.setSuffix(" mm")
+        interval = self.ui.forceHoldIntervalSpinBox
+        interval.setRange(0.02, 5.0)
+        interval.setDecimals(3)
+        interval.setSingleStep(0.01)
+        interval.setValue(0.10)
+        interval.setSuffix(" s")
 
         t = self.translator
         self.ui.scanAxisLabel.setText(t("label.scan_axis"))
@@ -743,14 +747,15 @@ class ViewBinder:
         self.ui.scanLedSizeLabel.setText(t("label.led_size"))
         self.ui.scanDistanceLabel.setText(t("label.scan_distance"))
         self.ui.forceHoldEnableCheckBox.setText(t("force_hold.enable"))
-        self.ui.forceHoldFastResponseCheckBox.setText(
-            t("force_hold.fast_response")
-        )
         self.ui.forceHoldToleranceLabel.setText(t("force_hold.tolerance"))
         self.ui.forceHoldStepLabel.setText(t("force_hold.z_step"))
+        self.ui.forceHoldIntervalLabel.setText(t("force_hold.interval"))
         self.ui.forceHoldEnableCheckBox.setToolTip(t("force_hold.tooltip"))
-        self.ui.forceHoldFastResponseCheckBox.setToolTip(
-            t("force_hold.fast_tooltip")
+        self.ui.forceHoldToleranceSpinBox.setToolTip(
+            t("force_hold.deadband_tooltip")
+        )
+        self.ui.forceHoldIntervalSpinBox.setToolTip(
+            t("force_hold.interval_tooltip")
         )
         self.ui.forceHoldStatusLabel.setText(t("force_hold.status_off"))
         self.ui.forceHoldStatusLabel.setToolTip(t("force_hold.workflow"))
@@ -772,6 +777,8 @@ class ViewBinder:
             "Speed_Setting_val": (5, 1),
             "label": (6, 0),
             "sampleRateSpinBox": (6, 1),
+            "forceHoldIntervalLabel": (8, 0),
+            "forceHoldIntervalSpinBox": (8, 1),
             "forceHoldToleranceLabel": (9, 0),
             "forceHoldToleranceSpinBox": (9, 1),
             "forceHoldStepLabel": (10, 0),
@@ -791,9 +798,8 @@ class ViewBinder:
             layout.addWidget(force_hold_enable, 7, 0, 1, 2)
 
         fast_response = getattr(self.ui, "forceHoldFastResponseCheckBox", None)
-        if fast_response is not None:
-            layout.removeWidget(fast_response)
-            layout.addWidget(fast_response, 8, 0, 1, 2)
+        if fast_response is not None and hasattr(fast_response, "setVisible"):
+            fast_response.setVisible(False)
 
         quality_label = getattr(self.ui, "scanQualityLabel", None)
         force_hold_status = getattr(self.ui, "forceHoldStatusLabel", None)

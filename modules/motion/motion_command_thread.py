@@ -5,6 +5,8 @@ from PySide6.QtCore import QThread, Signal
 
 
 class MotionCommandThread(QThread):
+    MOVE_COMPLETION_TIMEOUT_S = 5.0
+    MOVE_POLL_INTERVAL_MS = 5
     move_finished = Signal(bool, str)
     scan_started = Signal()
     scan_progress = Signal(object)
@@ -165,10 +167,10 @@ class MotionCommandThread(QThread):
 
     def _execute_move(self, axis, direction, length_pulse, profile):
         try:
-            state = self.motion.read_axis_state(axis)
-            if state.emergency:
+            initial = self.motion.read_axis_state(axis)
+            if initial.emergency:
                 raise RuntimeError("Motion controller emergency input is active")
-            if state.run_state != 0:
+            if initial.run_state != 0:
                 raise RuntimeError("Selected motion axis is already moving")
             self.motion.enable_axis(axis)
             result = self.motion.move_relative(
@@ -179,7 +181,27 @@ class MotionCommandThread(QThread):
             )
             if result == -1:
                 raise ConnectionError("Motion command failed")
-            self.move_finished.emit(True, "queued move accepted")
+
+            deadline = time.perf_counter() + self.MOVE_COMPLETION_TIMEOUT_S
+            seen_motion = False
+            while self._running:
+                state = self.motion.read_axis_state(axis)
+                seen_motion = (
+                    seen_motion
+                    or state.run_state != 0
+                    or state.position != initial.position
+                )
+                if state.emergency:
+                    raise RuntimeError(
+                        "Motion controller emergency input became active"
+                    )
+                if seen_motion and state.run_state == 0:
+                    self.move_finished.emit(True, "move completed")
+                    return
+                if time.perf_counter() >= deadline:
+                    raise TimeoutError("Motion completion timeout")
+                self.msleep(self.MOVE_POLL_INTERVAL_MS)
+            raise RuntimeError("Motion worker stopped before move completed")
         except Exception as exc:
             try:
                 self.motion.stop_axis(axis)

@@ -34,17 +34,18 @@ TRANSLATIONS = {
         "force_commission.channel_limit": "Per-channel high limit (0 = off)",
         "force_commission.imbalance_limit": "Channel spread limit (0 = off)",
         "force_commission.rise_rate_limit": "Force rise-rate limit (0 = off)",
-        "force_commission.control": "Static Hold Parameters",
-        "force_commission.target": "Target force",
-        "force_commission.tolerance": "Tolerance",
-        "force_commission.z_step": "Z correction step",
+        "force_commission.control": "Derivative Damping Parameters",
+        "force_commission.target": "Safety reference force",
+        "force_commission.tolerance": "Derivative deadband",
+        "force_commission.z_step": "Fixed Z step",
         "force_commission.z_step_help": (
-            "Small correction used by Static Hold. It is independent of the Z+ "
-            "verification distance."
+            "Fixed Z displacement applied whenever the force derivative exceeds "
+            "the deadband. It is independent of the Z+ verification distance."
         ),
-        "force_commission.interval": "Control interval",
-        "force_commission.confirm": "Error confirmation",
-        "force_commission.max_offset": "Maximum Z offset",
+        "force_commission.interval": "Derivative time step",
+        "force_commission.confirm": "Force averaging window",
+        "force_commission.max_offset": "Maximum accumulated Z",
+        "force_commission.max_error": "Maximum reference deviation",
         "force_commission.retract": "Controlled Retract",
         "force_commission.retract_enable": "Retract on a verified high-force trip",
         "force_commission.retract_distance": "Z- retract distance",
@@ -53,42 +54,55 @@ TRANSLATIONS = {
             "controlled Z- retract after a verified high-force trip."
         ),
         "force_commission.verify_group": "Z+ Direction Verification",
-        "force_commission.verify_distance": "Z+ verification distance",
+        "force_commission.verify_distance": "Maximum Z+ verification travel",
         "force_commission.verify_delta": "Minimum force increase",
+        "force_commission.verify_settle": "Force settling time",
         "force_commission.verify_distance_help": (
-            "Independent test move used only by Verify Z+. Adjustable from 0.0001 to "
-            "0.0100 mm; the same distance is queued in Z- after measurement."
+            "Maximum cumulative travel used only by Verify Z+. The software advances "
+            "in guarded 0.002 mm increments, stopping as soon as the force increase is "
+            "resolved. Adjustable from 0.0001 to 0.0500 mm."
         ),
         "force_commission.verify_delta_help": (
             "Required total-force increase for passing Verify Z+. With 0.1 N sensor "
             "resolution, use at least 0.2 N (two resolution counts)."
         ),
-        "force_commission.capture_target": "Capture Target",
+        "force_commission.verify_settle_help": (
+            "Wait after each completed Z step before averaging the force response. "
+            "Increase this when the sensor, structure, or DAQ responds slowly."
+        ),
+        "force_commission.capture_target": "Capture Safety Reference",
         "force_commission.monitor": "Monitor Only",
         "force_commission.verify": "Verify Z+",
-        "force_commission.hold": "Start Static Hold",
+        "force_commission.hold": "Start Derivative Control",
         "force_commission.stop": "Stop",
         "force_commission.emergency": "Emergency Stop",
         "force_commission.status_idle": "Idle · no automatic Z motion",
         "force_commission.status_monitoring": "Monitoring safety limits · Z remains fixed",
-        "force_commission.status_holding": "Static force hold active",
+        "force_commission.status_holding": "Force-derivative damping active",
+        "force_commission.derivative_live": "dF/dt {derivative:+.2f} N/s · deadband ±{deadband:.2f} N/s · no Z move",
+        "force_commission.derivative_correction": "dF/dt {derivative:+.2f} N/s · commanded {direction} {step:.4f} mm",
+        "force_commission.motion_settling": "Previous Z step is still moving · no additional correction queued",
         "force_commission.direction_verified": "Z+ direction verified for this application session.",
         "force_commission.direction_unverified": "Z+ direction is not verified; automatic Z motion is locked.",
         "force_commission.force_required": "Start force acquisition first.",
         "force_commission.analog_required": "Static hold and direction verification require Analog force mode.",
         "force_commission.no_signal": "No valid force signal is available.",
         "force_commission.motion_busy": "Stop the scan or active commissioning session first.",
-        "force_commission.target_required": "Capture or enter a positive target force first.",
-        "force_commission.direction_required": "Verify the Z+ force direction before starting Static Hold.",
-        "force_commission.target_captured": "Current total force captured as the target.",
+        "force_commission.target_required": "Capture or enter a positive safety reference force first.",
+        "force_commission.direction_required": "Verify the Z+ force direction before starting derivative control.",
+        "force_commission.target_captured": "Current total force captured as the safety reference.",
         "force_commission.verify_title": "Confirm Z+ Direction Test",
         "force_commission.verify_prompt": (
-            "A Z+ move of {distance:.4f} mm will be applied and then reversed. Verification "
-            "requires a total-force increase of at least {threshold:.1f} N. Use a dummy "
-            "specimen, keep a hand on the hardware emergency stop, and confirm that "
-            "clearance is safe."
+            "Z+ will advance in steps up to {increment:.4f} mm, with a maximum cumulative "
+            "travel of {distance:.4f} mm. After each completed step, the software waits "
+            "{settle:.1f} s and checks for at least {threshold:.1f} N total-force increase. "
+            "The actual cumulative travel is then reversed. Use a dummy specimen, keep a "
+            "hand on the hardware emergency stop, and confirm that clearance is safe."
         ),
-        "force_commission.verifying": "Applying the Z+ test step and measuring the force response...",
+        "force_commission.verifying": "Applying guarded Z+ steps and measuring the force response...",
+        "force_commission.verify_moving": "Queuing the next guarded Z+ step · {travel:.4f}/{maximum:.4f} mm completed",
+        "force_commission.verify_settling": "Z motion completed · waiting {settle:.1f} s for force settling at {travel:.4f} mm",
+        "force_commission.verify_returning": "Measurement complete · returning Z- by the accumulated {travel:.4f} mm",
         "force_commission.verify_passed": "Z+ increased force by {delta:.3f} N (required {threshold:.1f} N); direction verified.",
         "force_commission.verify_failed": "Z+ force change was {delta:.3f} N (required {threshold:.1f} N); increase the safe verification distance if needed.",
         "force_commission.stopped": "Commissioning session stopped.",
@@ -185,37 +199,38 @@ TRANSLATIONS = {
         "label.led_count": "LED Count",
         "label.led_size": "LED Size (mm)",
         "label.scan_distance": "Scan Distance (mm)",
-        "force_hold.enable": "Force Hold During Scan",
-        "force_hold.fast_response": "Fast Response (Experimental)",
-        "force_hold.tolerance": "Force Tolerance",
-        "force_hold.z_step": "Z Correction Step",
+        "force_hold.enable": "Derivative Force Control During Scan",
+        "force_hold.interval": "Derivative Time Step",
+        "force_hold.tolerance": "Derivative Deadband",
+        "force_hold.z_step": "Fixed Z Step",
         "force_hold.tooltip": (
-            "Enables force control for the next scan; it does not move Z while idle. "
-            "Uses the force captured by Confirm Load as the target. Z+ is assumed "
-            "to reduce the gap and increase force."
+            "At each fixed time step, computes dF/dt. Positive dF/dt moves Z toward "
+            "lower force; negative dF/dt moves Z toward higher force. Confirmed load "
+            "is retained only as an independent safety reference."
         ),
-        "force_hold.fast_tooltip": (
-            "Uses a 20 ms force window, 20 ms error confirmation and 50 ms control "
-            "interval. Best with NI analog force acquisition; a 0.0040 mm Z step is "
-            "a practical starting point. Keep disabled if the force signal is noisy."
+        "force_hold.interval_tooltip": (
+            "Fixed denominator and execution period used for dF/dt. Shorter values "
+            "respond faster but amplify the 0.1 N force resolution."
         ),
-        "force_hold.profile_standard": "Standard",
-        "force_hold.profile_fast": "Fast",
+        "force_hold.deadband_tooltip": (
+            "No Z correction is made while |dF/dt| is at or below this value. "
+            "Use this to prevent quantization noise from causing chatter."
+        ),
         "force_hold.workflow": (
             "1. Start force acquisition and zero with no load. 2. Align and apply the "
-            "acceptable load. 3. Press Confirm Load. 4. Enable Force Hold and review "
-            "the target/current values. 5. Start Scan; closed-loop Z correction begins "
-            "only while the scan is moving."
+            "acceptable load. 3. Press Confirm Load. 4. Set derivative time step, "
+            "deadband and fixed Z step. 5. Start Scan; derivative Z damping begins only "
+            "while the scan is moving."
         ),
         "force_hold.status_off": "Off · Z remains fixed during the scan",
         "force_hold.status_start_force": "Enabled for next scan · start Force Acquisition",
         "force_hold.status_wait_force": "Enabled · waiting for a valid force sample",
         "force_hold.status_confirm": "Enabled · press Confirm Load in Step 2",
         "force_hold.status_ready": (
-            "{profile} ready · target {target:.2f} N · now {current:.2f} N"
+            "Derivative ready · Δt {interval:.3f} s · reference {target:.2f} N · now {current:.2f} N"
         ),
         "force_hold.status_active": (
-            "{profile} active · target {target:.2f} N · {corrections} corrections · Z {offset:+.4f} mm"
+            "Derivative active · dF/dt {derivative:+.2f} N/s · {corrections} corrections · Z {offset:+.4f} mm"
         ),
         "label.repeat": "Repeat",
         "label.start_voltage": "Start Voltage",
@@ -277,16 +292,16 @@ TRANSLATIONS = {
         "scan.invalid_dimensions_short": "Invalid LED geometry",
         "scan.not_ready_short": "Not ready · review details",
         "scan.invalid_plan": "Review the scan parameters: {detail}",
-        "scan.force_hold_z_axis": "Force Hold cannot be used while Z is the scan axis",
-        "scan.force_hold_target": "Confirm a positive load for the Force Hold target",
-        "scan.force_hold_signal": "A fresh force value is required for Force Hold",
+        "scan.force_hold_z_axis": "Derivative force control cannot be used while Z is the scan axis",
+        "scan.force_hold_target": "Confirm a positive force safety reference",
+        "scan.force_hold_signal": "A fresh force value is required for derivative control",
         "scan.force_hold_initial_error": (
-            "Current force differs too much from the confirmed Force Hold target"
+            "Current force differs too much from the confirmed safety reference"
         ),
         "scan.force_hold_running": (
-            "Scan {progress:.0f}% · F {force:.2f}/{target:.2f} N · Z {offset:+.4f} mm"
+            "Scan {progress:.0f}% · F {force:.2f} N · dF/dt {derivative:+.2f} N/s · Z {offset:+.4f} mm"
         ),
-        "scan.force_hold_abort": "Force Hold stopped the scan: {detail}",
+        "scan.force_hold_abort": "Derivative force control stopped the scan: {detail}",
         "scan.force_hold_stale_signal": "force data became stale",
         "scan.force_hold_invalid_signal": "force data became invalid",
         "scan.force_hold_force_error_limit": "force error exceeded the safety limit",
@@ -327,7 +342,7 @@ TRANSLATIONS = {
         "results.samples": "Samples/LED (min–max)",
         "results.constant": "Constant-speed data",
         "results.duration": "Capture duration",
-        "results.force_hold": "Force Hold",
+        "results.force_hold": "Derivative Force Control",
         "results.quality": "Quality assessment",
         "results.quality_ok": "All configured quality checks passed.",
         "results.interpretation": "How to read this result",
@@ -352,7 +367,8 @@ TRANSLATIONS = {
         "results.files_none": "No files were saved.",
         "results.force_hold_off": "Off",
         "results.force_hold_on": (
-            "{profile} · {corrections} corrections · target {target:.2f} N · Z {offset:+.4f} mm"
+            "Derivative · Δt {interval:.3f} s · deadband {deadband:.2f} N/s · "
+            "{corrections} corrections · Z {offset:+.4f} mm"
         ),
         "results.folder": "Output folder",
         "results.open_folder": "Open Folder",
@@ -441,16 +457,17 @@ TRANSLATIONS = {
         "force_commission.channel_limit": "单通道上限（0 = 关闭）",
         "force_commission.imbalance_limit": "通道极差上限（0 = 关闭）",
         "force_commission.rise_rate_limit": "力上升速率上限（0 = 关闭）",
-        "force_commission.control": "静态保持参数",
-        "force_commission.target": "目标力",
-        "force_commission.tolerance": "力容差",
-        "force_commission.z_step": "Z 轴修正步长",
+        "force_commission.control": "微分阻尼控制参数",
+        "force_commission.target": "安全参考力",
+        "force_commission.tolerance": "微分死区",
+        "force_commission.z_step": "固定 Z 位移步长",
         "force_commission.z_step_help": (
-            "静态保持使用的小幅修正位移，与 Z+ 验证距离相互独立。"
+            "当力微分超过死区时执行的固定 Z 位移，与 Z+ 验证距离相互独立。"
         ),
-        "force_commission.interval": "控制间隔",
-        "force_commission.confirm": "误差确认时间",
-        "force_commission.max_offset": "最大 Z 偏移",
+        "force_commission.interval": "微分时间步长",
+        "force_commission.confirm": "力平均窗口",
+        "force_commission.max_offset": "最大累计 Z 位移",
+        "force_commission.max_error": "最大参考力偏差",
         "force_commission.retract": "受控回撤",
         "force_commission.retract_enable": "验证方向后，高力触发时自动回撤",
         "force_commission.retract_distance": "Z- 回撤距离",
@@ -458,41 +475,53 @@ TRANSLATIONS = {
             "方向验证前即可编辑；此距离仅用于验证方向后的高力保护 Z- 回撤。"
         ),
         "force_commission.verify_group": "Z+ 方向验证",
-        "force_commission.verify_distance": "Z+ 验证距离",
+        "force_commission.verify_distance": "Z+ 最大验证行程",
         "force_commission.verify_delta": "最小增力值",
+        "force_commission.verify_settle": "力稳定等待时间",
         "force_commission.verify_distance_help": (
-            "仅供“验证 Z+”使用的独立测试位移，可在 0.0001～0.0100 mm 范围内设置；"
-            "测量完成后会排队执行相同距离的 Z- 返回。"
+            "仅供“验证 Z+”使用的最大累计行程。软件以最大 0.002 mm 的受控小步逐步前进，"
+            "一旦检测到足够增力就停止；可在 0.0001～0.0500 mm 范围内设置。"
         ),
         "force_commission.verify_delta_help": (
             "验证通过所需的总力最小增量。传感器分辨率为 0.1 N 时，建议至少设置 "
             "0.2 N（两个分辨单位）。"
         ),
-        "force_commission.capture_target": "采集目标值",
+        "force_commission.verify_settle_help": (
+            "每次 Z 轴运动确认完成后，等待该时间再对力响应取平均。传感器、机械结构或 "
+            "DAQ 响应较慢时可适当增加。"
+        ),
+        "force_commission.capture_target": "采集安全参考值",
         "force_commission.monitor": "仅监测",
         "force_commission.verify": "验证 Z+",
-        "force_commission.hold": "启动静态保持",
+        "force_commission.hold": "启动微分控制",
         "force_commission.stop": "停止",
         "force_commission.emergency": "急停",
         "force_commission.status_idle": "空闲 · 不会自动移动 Z 轴",
         "force_commission.status_monitoring": "正在监测安全限值 · Z 轴保持不动",
-        "force_commission.status_holding": "静态力保持运行中",
+        "force_commission.status_holding": "力微分阻尼控制运行中",
+        "force_commission.derivative_live": "dF/dt {derivative:+.2f} N/s · 死区 ±{deadband:.2f} N/s · Z 轴不动",
+        "force_commission.derivative_correction": "dF/dt {derivative:+.2f} N/s · 已命令 {direction} {step:.4f} mm",
+        "force_commission.motion_settling": "上一次 Z 位移尚未完成 · 不追加新的修正命令",
         "force_commission.direction_verified": "本次软件启动已验证 Z+ 增力方向。",
         "force_commission.direction_unverified": "尚未验证 Z+ 增力方向，自动 Z 轴运动已锁定。",
         "force_commission.force_required": "请先启动力采集。",
-        "force_commission.analog_required": "静态保持与方向验证要求使用模拟量力采集模式。",
+        "force_commission.analog_required": "微分控制与方向验证要求使用模拟量力采集模式。",
         "force_commission.no_signal": "当前没有有效力数据。",
         "force_commission.motion_busy": "请先停止扫描或正在运行的力闭环调试。",
-        "force_commission.target_required": "请先采集或输入一个正的目标力。",
-        "force_commission.direction_required": "启动静态保持前必须先验证 Z+ 增力方向。",
-        "force_commission.target_captured": "已将当前总力设为目标值。",
+        "force_commission.target_required": "请先采集或输入一个正的安全参考力。",
+        "force_commission.direction_required": "启动微分控制前必须先验证 Z+ 增力方向。",
+        "force_commission.target_captured": "已将当前总力设为安全参考值。",
         "force_commission.verify_title": "确认 Z+ 方向测试",
         "force_commission.verify_prompt": (
-            "软件将执行 {distance:.4f} mm 的 Z+ 位移并随后反向返回；总力至少增加 "
-            "{threshold:.1f} N 才能通过验证。请使用替代样片，确认安全间隙，并随时准备"
-            "按下硬件急停。"
+            "Z+ 将以不超过 {increment:.4f} mm 的小步逐步前进，最大累计行程为 "
+            "{distance:.4f} mm。每步确认运动完成后等待 {settle:.1f} s，并检测总力是否至少"
+            "增加 {threshold:.1f} N；随后按实际累计位移反向返回。请使用替代样片，确认"
+            "安全间隙，并随时准备按下硬件急停。"
         ),
-        "force_commission.verifying": "正在执行 Z+ 测试步并测量力变化...",
+        "force_commission.verifying": "正在分步执行 Z+ 验证并测量力变化...",
+        "force_commission.verify_moving": "正在排队执行下一次受控 Z+ 小步 · 已完成 {travel:.4f}/{maximum:.4f} mm",
+        "force_commission.verify_settling": "Z 轴运动已完成 · 在 {travel:.4f} mm 处等待 {settle:.1f} s 使力值稳定",
+        "force_commission.verify_returning": "测量完成 · 正在按累计位移执行 Z- 返回 {travel:.4f} mm",
         "force_commission.verify_passed": "Z+ 使力增加 {delta:.3f} N（要求 {threshold:.1f} N），方向验证通过。",
         "force_commission.verify_failed": "Z+ 后力变化为 {delta:.3f} N（要求 {threshold:.1f} N）；如安全条件允许，请增大验证距离。",
         "force_commission.stopped": "力闭环调试已停止。",
@@ -589,35 +618,35 @@ TRANSLATIONS = {
         "label.led_count": "LED 数量",
         "label.led_size": "单颗 LED 尺寸 (mm)",
         "label.scan_distance": "扫描距离 (mm)",
-        "force_hold.enable": "扫描时保持力",
-        "force_hold.fast_response": "快速响应（实验性）",
-        "force_hold.tolerance": "力容差",
-        "force_hold.z_step": "Z 轴修正步长",
+        "force_hold.enable": "扫描时启用力微分控制",
+        "force_hold.interval": "微分时间步长",
+        "force_hold.tolerance": "微分死区",
+        "force_hold.z_step": "固定 Z 位移步长",
         "force_hold.tooltip": (
-            "为下一次扫描启用力闭环；空闲时不会移动 Z 轴。"
-            "以“确认负载”时记录的合力为目标，默认 Z+ 会减小间隙并增大压力。"
+            "按固定时间步长计算 dF/dt。微分为正时向减力方向移动，微分为负时向增力"
+            "方向移动；确认负载仅作为独立安全参考，不参与方向判断。"
         ),
-        "force_hold.fast_tooltip": (
-            "采用 20 ms 力值窗口、20 ms 误差确认和 50 ms 控制间隔。"
-            "建议配合 NI 模拟量力采集使用，Z 步长可从 0.0040 mm 开始测试；"
-            "如果力信号噪声较大，请关闭此选项。"
+        "force_hold.interval_tooltip": (
+            "用于计算 dF/dt 的固定分母和执行周期。时间越短响应越快，但会放大 0.1 N "
+            "分辨率带来的量化变化。"
         ),
-        "force_hold.profile_standard": "标准",
-        "force_hold.profile_fast": "快速",
+        "force_hold.deadband_tooltip": (
+            "当 |dF/dt| 小于或等于此值时不执行 Z 位移，用于防止量化噪声导致频繁抖动。"
+        ),
         "force_hold.workflow": (
             "1. 启动力采集，并在无负载时清零。2. 人工对准并施加可接受压力。"
-            "3. 点击“确认负载”。4. 勾选力保持并核对目标值和当前值。"
-            "5. 点击开始扫描；只有扫描运动期间才会执行 Z 轴闭环修正。"
+            "3. 点击“确认负载”。4. 设置微分时间步长、微分死区和固定 Z 步长。"
+            "5. 点击开始扫描；只有扫描运动期间才会执行 Z 轴微分阻尼修正。"
         ),
         "force_hold.status_off": "已关闭 · 扫描期间 Z 轴保持不变",
         "force_hold.status_start_force": "已为下一次扫描启用 · 请先启动力采集",
         "force_hold.status_wait_force": "已启用 · 正在等待有效力数据",
         "force_hold.status_confirm": "已启用 · 请在步骤 2 点击“确认负载”",
         "force_hold.status_ready": (
-            "{profile}模式已就绪 · 目标 {target:.2f} N · 当前 {current:.2f} N"
+            "微分控制已就绪 · Δt {interval:.3f} s · 参考 {target:.2f} N · 当前 {current:.2f} N"
         ),
         "force_hold.status_active": (
-            "{profile}模式工作中 · 目标 {target:.2f} N · 已修正 {corrections} 次 · Z {offset:+.4f} mm"
+            "微分控制中 · dF/dt {derivative:+.2f} N/s · 已修正 {corrections} 次 · Z {offset:+.4f} mm"
         ),
         "label.repeat": "重复次数",
         "label.start_voltage": "起始电压",
@@ -677,14 +706,14 @@ TRANSLATIONS = {
         "scan.invalid_dimensions_short": "LED 几何参数无效",
         "scan.not_ready_short": "尚未就绪 · 请查看详情",
         "scan.invalid_plan": "请检查扫描参数：{detail}",
-        "scan.force_hold_z_axis": "Z 轴作为扫描轴时不能启用力保持",
-        "scan.force_hold_target": "请确认一个正向负载作为力保持目标",
-        "scan.force_hold_signal": "力保持需要新鲜的力数据",
-        "scan.force_hold_initial_error": "当前力与已确认目标相差过大",
+        "scan.force_hold_z_axis": "Z 轴作为扫描轴时不能启用力微分控制",
+        "scan.force_hold_target": "请确认一个正的力安全参考值",
+        "scan.force_hold_signal": "力微分控制需要新鲜的力数据",
+        "scan.force_hold_initial_error": "当前力与已确认的安全参考值相差过大",
         "scan.force_hold_running": (
-            "扫描 {progress:.0f}% · 力 {force:.2f}/{target:.2f} N · Z {offset:+.4f} mm"
+            "扫描 {progress:.0f}% · 力 {force:.2f} N · dF/dt {derivative:+.2f} N/s · Z {offset:+.4f} mm"
         ),
-        "scan.force_hold_abort": "力保持已终止扫描：{detail}",
+        "scan.force_hold_abort": "力微分控制已终止扫描：{detail}",
         "scan.force_hold_stale_signal": "力数据过期",
         "scan.force_hold_invalid_signal": "力数据无效",
         "scan.force_hold_force_error_limit": "力误差超过安全限制",
@@ -725,7 +754,7 @@ TRANSLATIONS = {
         "results.samples": "每颗 LED 采样数（最少–最多）",
         "results.constant": "恒速数据占比",
         "results.duration": "采集时长",
-        "results.force_hold": "力保持",
+        "results.force_hold": "力微分控制",
         "results.quality": "质量评估",
         "results.quality_ok": "所有已配置的数据质量检查均已通过。",
         "results.interpretation": "如何理解本次结果",
@@ -749,7 +778,8 @@ TRANSLATIONS = {
         "results.files_none": "没有保存文件。",
         "results.force_hold_off": "未启用",
         "results.force_hold_on": (
-            "{profile} · 修正 {corrections} 次 · 目标 {target:.2f} N · Z {offset:+.4f} mm"
+            "微分控制 · Δt {interval:.3f} s · 死区 {deadband:.2f} N/s · "
+            "修正 {corrections} 次 · Z {offset:+.4f} mm"
         ),
         "results.folder": "输出文件夹",
         "results.open_folder": "打开文件夹",

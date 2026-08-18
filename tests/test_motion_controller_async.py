@@ -264,3 +264,53 @@ def test_force_hold_z_step_waits_while_z_axis_is_busy():
     controller.motion = BusyMotion()
 
     assert controller.apply_force_hold_z_step(-1, 0.002) == (False, "busy", 500)
+
+
+def test_force_verification_move_has_separate_larger_travel_limit():
+    controller = object.__new__(MotionController)
+    controller.motion_worker = DummyMotionWorker(None)
+
+    controller.queue_force_verification_z_move(+1, 0.03)
+
+    move = controller.motion_worker.moves[-1]
+    assert move[:3] == (3, +1, 329)
+
+    with pytest.raises(ValueError, match="0.05 mm"):
+        controller.queue_force_verification_z_move(+1, 0.051)
+
+
+def test_background_move_finishes_only_after_axis_reports_completion():
+    class CompletingMotion:
+        def __init__(self):
+            self.states = [
+                MotionState(100, 0, 0, 0, 0),
+                MotionState(100, 1, 0, 0, 0),
+                MotionState(122, 0, 0, 0, 0),
+            ]
+
+        def read_axis_state(self, axis):
+            return self.states.pop(0)
+
+        def enable_axis(self, axis):
+            return 0
+
+        def move_relative(self, axis, direction, length, profile):
+            return 0
+
+        def stop_axis(self, axis):
+            return 0
+
+    worker = MotionCommandThread(CompletingMotion())
+    worker._running = True
+    worker.msleep = lambda _milliseconds: None
+    outcomes = []
+    worker.move_finished.connect(lambda ok, detail: outcomes.append((ok, detail)))
+
+    worker._execute_move(
+        axis=3,
+        direction=1,
+        length_pulse=22,
+        profile=MotionProfile(vo=100, vt=1000, acc_time=100, dec_time=100),
+    )
+
+    assert outcomes == [(True, "move completed")]

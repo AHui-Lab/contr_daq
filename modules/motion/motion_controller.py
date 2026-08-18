@@ -22,6 +22,7 @@ class MotionController:
     MAX_RAMP_TIME_MS = 1000
     FORCE_HOLD_Z_SPEED_MM_S = 0.1
     MAX_FORCE_HOLD_STEP_MM = 0.0100
+    MAX_FORCE_VERIFY_MOVE_MM = 0.0500
     BASE_DIR = Path(__file__).resolve().parents[2]
     dll_path = BASE_DIR / "dll" / "NET_AMC4XER.dll"
 
@@ -117,12 +118,36 @@ class MotionController:
 
     def queue_force_hold_z_step(self, direction, distance_mm):
         """Queue a guarded Z micro-step so UI timers never call hardware directly."""
+        return self._queue_guarded_z_move(
+            direction,
+            distance_mm,
+            max_distance_mm=self.MAX_FORCE_HOLD_STEP_MM,
+            log_context="Force Commissioning",
+        )
+
+    def queue_force_verification_z_move(self, direction, distance_mm):
+        """Queue a commissioning-only Z move with a separately bounded travel limit."""
+        return self._queue_guarded_z_move(
+            direction,
+            distance_mm,
+            max_distance_mm=self.MAX_FORCE_VERIFY_MOVE_MM,
+            log_context="Force Verification",
+        )
+
+    def _queue_guarded_z_move(
+        self,
+        direction,
+        distance_mm,
+        *,
+        max_distance_mm,
+        log_context,
+    ):
         step_mm = float(distance_mm)
         if int(direction) not in (-1, 1):
             raise ValueError("Force-hold Z direction must be +1 or -1")
-        if step_mm <= 0 or step_mm > self.MAX_FORCE_HOLD_STEP_MM:
+        if step_mm <= 0 or step_mm > float(max_distance_mm):
             raise ValueError(
-                f"Force-hold Z step must be within 0 to {self.MAX_FORCE_HOLD_STEP_MM:g} mm"
+                f"Guarded Z move must be within 0 to {float(max_distance_mm):g} mm"
             )
         config = self.AXIS_CONFIG["Z"]
         length_pulse = max(1, round(step_mm * config["pulses_per_mm"]))
@@ -138,7 +163,7 @@ class MotionController:
             profile,
         )
         log(
-            f"[Force Commissioning] queued Z "
+            f"[{log_context}] queued Z "
             f"{'+' if direction > 0 else '-'}{step_mm:.4f} mm"
         )
         return True

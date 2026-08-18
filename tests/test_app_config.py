@@ -34,9 +34,16 @@ def test_config_can_be_saved_and_loaded(tmp_path):
         force_serial_baudrate=19200,
         force_safety_total_high_n=12.5,
         force_safety_retract_enabled=True,
+        force_derivative_interval_s=0.08,
+        force_derivative_deadband_n_s=1.5,
+        force_derivative_z_step_mm=0.0008,
+        force_derivative_measurement_window_s=0.04,
+        force_derivative_max_offset_mm=0.03,
+        force_derivative_max_error_n=3.0,
         force_commission_z_step_mm=0.0005,
         force_commission_verify_distance_mm=0.003,
         force_commission_verify_delta_n=0.3,
+        force_commission_verify_settle_s=1.5,
         camera_1_index=2,
         camera_2_index=5,
     )
@@ -54,9 +61,16 @@ def test_config_can_be_saved_and_loaded(tmp_path):
     assert loaded.force_serial_baudrate == 19200
     assert loaded.force_safety_total_high_n == pytest.approx(12.5)
     assert loaded.force_safety_retract_enabled is True
+    assert loaded.force_derivative_interval_s == pytest.approx(0.08)
+    assert loaded.force_derivative_deadband_n_s == pytest.approx(1.5)
+    assert loaded.force_derivative_z_step_mm == pytest.approx(0.0008)
+    assert loaded.force_derivative_measurement_window_s == pytest.approx(0.04)
+    assert loaded.force_derivative_max_offset_mm == pytest.approx(0.03)
+    assert loaded.force_derivative_max_error_n == pytest.approx(3.0)
     assert loaded.force_commission_z_step_mm == pytest.approx(0.0005)
     assert loaded.force_commission_verify_distance_mm == pytest.approx(0.003)
     assert loaded.force_commission_verify_delta_n == pytest.approx(0.3)
+    assert loaded.force_commission_verify_settle_s == pytest.approx(1.5)
     assert loaded.camera_1_index == 2
     assert loaded.camera_2_index == 5
     assert loaded.sample_resistances_ohm[0] == pytest.approx(220.0)
@@ -87,7 +101,27 @@ def test_force_verification_settings_are_bounded_for_safe_quantized_measurement(
     config = AppConfig(
         force_commission_verify_distance_mm=1.0,
         force_commission_verify_delta_n=0.02,
+        force_commission_verify_settle_s=10.0,
     )
 
-    assert config.force_commission_verify_distance_mm == pytest.approx(0.01)
+    assert config.force_commission_verify_distance_mm == pytest.approx(0.05)
     assert config.force_commission_verify_delta_n == pytest.approx(0.1)
+    assert config.force_commission_verify_settle_s == pytest.approx(5.0)
+
+
+def test_force_derivative_settings_are_bounded_and_window_fits_time_step():
+    config = AppConfig(
+        force_derivative_interval_s=0.01,
+        force_derivative_deadband_n_s=-1.0,
+        force_derivative_z_step_mm=1.0,
+        force_derivative_measurement_window_s=2.0,
+        force_derivative_max_offset_mm=0.001,
+        force_derivative_max_error_n=0.0,
+    )
+
+    assert config.force_derivative_interval_s == pytest.approx(0.02)
+    assert config.force_derivative_deadband_n_s == pytest.approx(0.0)
+    assert config.force_derivative_z_step_mm == pytest.approx(0.01)
+    assert config.force_derivative_measurement_window_s == pytest.approx(0.02)
+    assert config.force_derivative_max_offset_mm == pytest.approx(0.01)
+    assert config.force_derivative_max_error_n == pytest.approx(0.1)

@@ -128,6 +128,7 @@ class MainWindow:
             config=self.config,
             runtime=self.runtime,
             translator=self.translator,
+            on_config_saved=lambda: self.config.save(CONFIG_FILE),
         )
         self._build_settings_menu()
         self.view_binder.refresh_static_text()

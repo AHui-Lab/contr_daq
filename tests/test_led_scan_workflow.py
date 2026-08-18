@@ -306,13 +306,22 @@ def test_force_hold_accepts_negative_individual_channels_when_total_is_positive(
     assert readiness.blockers == ()
 
 
-def test_force_hold_fast_response_uses_low_latency_timing_and_force_window():
+def test_force_derivative_ui_builds_fixed_period_config_and_force_window():
     workflow = object.__new__(LedScanWorkflow)
     workflow.ui = type("UI", (), {})()
     workflow.ui.forceHoldEnableCheckBox = DummyCheckBox(True)
-    workflow.ui.forceHoldFastResponseCheckBox = DummyCheckBox(True)
-    workflow.ui.forceHoldToleranceSpinBox = DummyValueControl(0.25)
+    workflow.ui.forceHoldIntervalSpinBox = DummyValueControl(0.05)
+    workflow.ui.forceHoldToleranceSpinBox = DummyValueControl(1.5)
     workflow.ui.forceHoldStepSpinBox = DummyValueControl(0.004)
+    workflow.config = type(
+        "Config",
+        (),
+        {
+            "force_derivative_measurement_window_s": 0.02,
+            "force_derivative_max_offset_mm": 0.05,
+            "force_derivative_max_error_n": 2.0,
+        },
+    )()
     workflow._force_hold = ForceHoldController()
     requested_windows = []
     workflow.force = type(
@@ -329,13 +338,13 @@ def test_force_hold_fast_response_uses_low_latency_timing_and_force_window():
     config = workflow._force_hold_config()
     measured, sample_time = workflow._force_snapshot()
 
-    assert config.fast_response is True
-    assert config.control_interval_s == pytest.approx(0.05)
-    assert config.outside_confirm_s == pytest.approx(0.02)
+    assert config.derivative_interval_s == pytest.approx(0.05)
+    assert config.derivative_deadband_n_s == pytest.approx(1.5)
+    assert config.z_step_mm == pytest.approx(0.004)
     assert config.measurement_window_s == pytest.approx(0.02)
     assert config.signal_timeout_s == pytest.approx(0.15)
     assert config.max_offset_mm == pytest.approx(0.05)
-    assert config.hard_error_n == pytest.approx(1.0)
+    assert config.hard_error_n == pytest.approx(2.0)
     assert requested_windows == pytest.approx([0.02])
     assert (measured, sample_time) == pytest.approx((10.0, 5.0))
 
@@ -348,6 +357,7 @@ def test_force_hold_status_explains_each_enablement_step():
     workflow.ui = type("UI", (), {})()
     workflow.ui.forceHoldStatusLabel = DummyTextControl()
     workflow.ui.forceHoldEnableCheckBox = DummyCheckBox(True)
+    workflow.ui.forceHoldIntervalSpinBox = DummyValueControl(0.1)
     workflow.ui.forceHoldToleranceSpinBox = DummyValueControl(0.2)
     workflow.ui.forceHoldStepSpinBox = DummyValueControl(0.002)
     workflow.ui.scanLoadConfirmButton = DummyCheckBox(False)
@@ -377,7 +387,7 @@ def test_force_hold_status_explains_each_enablement_step():
     )
 
 
-def test_force_hold_tick_applies_z_positive_and_records_event():
+def test_force_hold_tick_applies_derivative_direction_and_records_event():
     workflow = object.__new__(LedScanWorkflow)
     workflow.translator = _translator
     workflow._force_hold = ForceHoldController()
@@ -387,7 +397,8 @@ def test_force_hold_tick_applies_z_positive_and_records_event():
         now=1.0,
     )
     force_clock = [1.20]
-    workflow._force_snapshot = lambda: (9.5, force_clock[0])
+    force_value = [9.5]
+    workflow._force_snapshot = lambda: (force_value[0], force_clock[0])
     moves = []
     workflow.motion = type(
         "Motion",
@@ -407,12 +418,14 @@ def test_force_hold_tick_applies_z_positive_and_records_event():
     )()
 
     workflow._on_force_hold_tick(1.20)
-    force_clock[0] = 1.26
-    workflow._on_force_hold_tick(1.26)
+    force_clock[0] = 1.30
+    force_value[0] = 9.7
+    workflow._on_force_hold_tick(1.30)
 
-    assert moves == [(1, pytest.approx(0.002))]
+    assert moves == [(-1, pytest.approx(0.0005))]
     assert events[0]["status"] == "applied"
-    assert events[0]["accumulated_z_mm"] == pytest.approx(0.002)
+    assert events[0]["derivative_n_s"] == pytest.approx(2.0)
+    assert events[0]["accumulated_z_mm"] == pytest.approx(-0.0005)
 
 
 def test_force_hold_tick_aborts_scan_when_force_signal_is_stale():

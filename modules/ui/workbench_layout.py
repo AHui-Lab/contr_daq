@@ -669,19 +669,19 @@ class WorkbenchLayout:
             f"{float(getattr(result, 'capture_duration_s', 0.0)):.3f} s"
         )
         if bool(getattr(result, "force_hold_enabled", False)):
-            profile = t(
-                "force_hold.profile_fast"
-                if bool(getattr(result, "force_hold_fast_response", False))
-                else "force_hold.profile_standard"
-            )
             force_hold_text = t(
                 "results.force_hold_on",
-                profile=profile,
                 corrections=int(
                     getattr(result, "force_hold_correction_count", 0)
                 ),
                 target=float(getattr(result, "force_hold_target_n", 0.0)),
                 offset=float(getattr(result, "force_hold_offset_mm", 0.0)),
+                interval=float(
+                    getattr(result, "force_hold_derivative_interval_s", 0.0)
+                ),
+                deadband=float(
+                    getattr(result, "force_hold_derivative_deadband_n_s", 0.0)
+                ),
             )
         else:
             force_hold_text = t("results.force_hold_off")

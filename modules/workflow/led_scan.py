@@ -116,6 +116,8 @@ class ScanResult:
     detail: str = ""
     force_hold_enabled: bool = False
     force_hold_fast_response: bool = False
+    force_hold_derivative_interval_s: float = 0.0
+    force_hold_derivative_deadband_n_s: float = 0.0
     force_hold_target_n: float = 0.0
     force_hold_correction_count: int = 0
     force_hold_offset_mm: float = 0.0
@@ -160,7 +162,7 @@ class LedScanWorkflow:
         "forceStartButton",
         "forceZeroButton",
         "forceHoldEnableCheckBox",
-        "forceHoldFastResponseCheckBox",
+        "forceHoldIntervalSpinBox",
         "forceHoldToleranceSpinBox",
         "forceHoldStepSpinBox",
         "scanLoadConfirmButton",
@@ -187,6 +189,7 @@ class LedScanWorkflow:
         config,
         runtime=None,
         translator=None,
+        on_config_saved=None,
     ):
         self.ui = ui
         self.motion = motion_controller
@@ -196,6 +199,7 @@ class LedScanWorkflow:
         self.config = config
         self.runtime = runtime
         self.translator = translator
+        self.on_config_saved = on_config_saved
         self.state = ScanWorkflowState.IDLE
         self._prepare_deadline = 0.0
         self._started_daq = False
@@ -229,7 +233,7 @@ class LedScanWorkflow:
     def retranslate_ui(self):
         for widget_name, key in (
             ("forceHoldEnableCheckBox", "force_hold.enable"),
-            ("forceHoldFastResponseCheckBox", "force_hold.fast_response"),
+            ("forceHoldIntervalLabel", "force_hold.interval"),
             ("forceHoldToleranceLabel", "force_hold.tolerance"),
             ("forceHoldStepLabel", "force_hold.z_step"),
         ):
@@ -239,9 +243,12 @@ class LedScanWorkflow:
         checkbox = getattr(self.ui, "forceHoldEnableCheckBox", None)
         if checkbox is not None and hasattr(checkbox, "setToolTip"):
             checkbox.setToolTip(self._t("force_hold.tooltip"))
-        fast_checkbox = getattr(self.ui, "forceHoldFastResponseCheckBox", None)
-        if fast_checkbox is not None and hasattr(fast_checkbox, "setToolTip"):
-            fast_checkbox.setToolTip(self._t("force_hold.fast_tooltip"))
+        interval = getattr(self.ui, "forceHoldIntervalSpinBox", None)
+        if interval is not None and hasattr(interval, "setToolTip"):
+            interval.setToolTip(self._t("force_hold.interval_tooltip"))
+        deadband = getattr(self.ui, "forceHoldToleranceSpinBox", None)
+        if deadband is not None and hasattr(deadband, "setToolTip"):
+            deadband.setToolTip(self._t("force_hold.deadband_tooltip"))
         if self.state is ScanWorkflowState.PREPARING:
             self._set_feedback(self._t("scan.preparing"), warning=False)
         elif self.state is ScanWorkflowState.RUNNING:
@@ -744,6 +751,7 @@ class LedScanWorkflow:
                 progress=self._progress_percent,
                 force=hold["force_hold_measured_n"],
                 target=hold["force_hold_target_n"],
+                derivative=hold.get("force_hold_derivative_n_s", 0.0),
                 offset=hold["force_hold_accumulated_z_mm"],
             )
         else:
@@ -758,21 +766,13 @@ class LedScanWorkflow:
 
         config = self._force_hold_config()
         snapshot = self._force_hold_metadata()
-        fast_response = (
-            bool(snapshot.get("force_hold_fast_response", False))
-            if snapshot.get("force_hold_armed")
-            else config.fast_response
-        )
-        profile = self._t(
-            "force_hold.profile_fast"
-            if fast_response
-            else "force_hold.profile_standard"
-        )
         if snapshot.get("force_hold_armed"):
             text = self._t(
                 "force_hold.status_active",
-                profile=profile,
                 target=float(snapshot.get("force_hold_target_n", 0.0)),
+                derivative=float(
+                    snapshot.get("force_hold_derivative_n_s", 0.0)
+                ),
                 corrections=int(snapshot.get("force_hold_correction_count", 0)),
                 offset=float(snapshot.get("force_hold_accumulated_z_mm", 0.0)),
             )
@@ -797,9 +797,9 @@ class LedScanWorkflow:
         else:
             text = self._t(
                 "force_hold.status_ready",
-                profile=profile,
                 target=float(self._confirmed_force_n),
                 current=float(getattr(self.force, "latest_force", 0.0)),
+                interval=config.derivative_interval_s,
             )
             color = "#8ff0b5"
             state = "ready"
@@ -990,8 +990,9 @@ class LedScanWorkflow:
         return decision.detail if translated == key else translated
 
     def _force_hold_config(self):
+        app_config = getattr(self, "config", None)
         enabled_widget = getattr(self.ui, "forceHoldEnableCheckBox", None)
-        fast_widget = getattr(self.ui, "forceHoldFastResponseCheckBox", None)
+        interval_widget = getattr(self.ui, "forceHoldIntervalSpinBox", None)
         tolerance_widget = getattr(self.ui, "forceHoldToleranceSpinBox", None)
         step_widget = getattr(self.ui, "forceHoldStepSpinBox", None)
         enabled = bool(
@@ -999,30 +1000,46 @@ class LedScanWorkflow:
             and hasattr(enabled_widget, "isChecked")
             and enabled_widget.isChecked()
         )
-        fast_response = bool(
-            fast_widget is not None
-            and hasattr(fast_widget, "isChecked")
-            and fast_widget.isChecked()
+        interval = (
+            float(interval_widget.value())
+            if interval_widget is not None and hasattr(interval_widget, "value")
+            else float(getattr(app_config, "force_derivative_interval_s", 0.10))
         )
-        tolerance = (
+        deadband = (
             float(tolerance_widget.value())
             if tolerance_widget is not None and hasattr(tolerance_widget, "value")
-            else 0.20
+            else float(
+                getattr(app_config, "force_derivative_deadband_n_s", 1.0)
+            )
         )
         step = (
             float(step_widget.value())
             if step_widget is not None and hasattr(step_widget, "value")
-            else 0.0020
+            else float(getattr(app_config, "force_derivative_z_step_mm", 0.0005))
+        )
+        measurement_window = min(
+            float(
+                getattr(
+                    app_config,
+                    "force_derivative_measurement_window_s",
+                    0.05,
+                )
+            ),
+            interval,
         )
         return ForceHoldConfig(
             enabled=enabled,
-            fast_response=fast_response,
-            tolerance_n=tolerance,
+            derivative_interval_s=interval,
+            derivative_deadband_n_s=deadband,
             z_step_mm=step,
-            control_interval_s=0.05 if fast_response else 0.15,
-            outside_confirm_s=0.02 if fast_response else 0.05,
-            measurement_window_s=0.02 if fast_response else 0.05,
-            signal_timeout_s=0.15 if fast_response else 0.25,
+            measurement_window_s=measurement_window,
+            signal_timeout_s=max(0.15, interval * 2.5),
+            max_offset_mm=float(
+                getattr(app_config, "force_derivative_max_offset_mm", 0.05)
+            ),
+            hard_error_n=float(
+                getattr(app_config, "force_derivative_max_error_n", 2.0)
+            ),
         )
 
     def _force_hold_metadata(self):
@@ -1064,6 +1081,8 @@ class LedScanWorkflow:
                 measured_force_n=decision.measured_force_n,
                 target_force_n=decision.target_force_n,
                 error_n=decision.error_n,
+                derivative_n_s=decision.derivative_n_s,
+                derivative_interval_s=decision.sample_interval_s,
                 direction=decision.direction,
                 step_mm=decision.step_mm,
                 accumulated_z_mm=accumulated_z_mm,
@@ -1280,6 +1299,12 @@ class LedScanWorkflow:
             force_hold_fast_response=bool(
                 quality.get("force_hold_fast_response", False)
             ),
+            force_hold_derivative_interval_s=float(
+                quality.get("force_hold_derivative_interval_s", 0.0)
+            ),
+            force_hold_derivative_deadband_n_s=float(
+                quality.get("force_hold_derivative_deadband_n_s", 0.0)
+            ),
             force_hold_target_n=float(quality.get("force_hold_target_n", 0.0)),
             force_hold_correction_count=int(
                 quality.get("force_hold_correction_count", 0)
@@ -1424,6 +1449,12 @@ class LedScanWorkflow:
             force_hold_enabled=bool(quality.get("force_hold_enabled", False)),
             force_hold_fast_response=bool(
                 quality.get("force_hold_fast_response", False)
+            ),
+            force_hold_derivative_interval_s=float(
+                quality.get("force_hold_derivative_interval_s", 0.0)
+            ),
+            force_hold_derivative_deadband_n_s=float(
+                quality.get("force_hold_derivative_deadband_n_s", 0.0)
             ),
             force_hold_target_n=float(quality.get("force_hold_target_n", 0.0)),
             force_hold_correction_count=int(
@@ -1594,6 +1625,15 @@ class LedScanWorkflow:
         self.ui.distanceSpinBox_2.setButtonSymbols(
             self.ui.distanceSpinBox_2.ButtonSymbols.NoButtons
         )
+        interval = getattr(self.ui, "forceHoldIntervalSpinBox", None)
+        if interval is not None:
+            interval.setValue(self.config.force_derivative_interval_s)
+        deadband = getattr(self.ui, "forceHoldToleranceSpinBox", None)
+        if deadband is not None:
+            deadband.setValue(self.config.force_derivative_deadband_n_s)
+        step = getattr(self.ui, "forceHoldStepSpinBox", None)
+        if step is not None:
+            step.setValue(self.config.force_derivative_z_step_mm)
         self._on_force_hold_toggled(
             bool(
                 getattr(self.ui, "forceHoldEnableCheckBox", None)
@@ -1620,14 +1660,6 @@ class LedScanWorkflow:
         force_hold_signal = getattr(force_hold_checkbox, "toggled", None)
         if force_hold_signal is not None:
             force_hold_signal.connect(self._on_force_hold_toggled)
-        fast_response_checkbox = getattr(
-            self.ui,
-            "forceHoldFastResponseCheckBox",
-            None,
-        )
-        fast_response_signal = getattr(fast_response_checkbox, "toggled", None)
-        if fast_response_signal is not None:
-            fast_response_signal.connect(self.update_preview)
         for widget in (
             self.ui.Axis_choice,
             self.ui.direction_choice,
@@ -1635,8 +1667,6 @@ class LedScanWorkflow:
             self.ui.Gap_time,
             self.ui.Speed_Setting_val,
             self.ui.sampleRateSpinBox,
-            getattr(self.ui, "forceHoldToleranceSpinBox", None),
-            getattr(self.ui, "forceHoldStepSpinBox", None),
         ):
             if widget is None:
                 continue
@@ -1645,6 +1675,14 @@ class LedScanWorkflow:
                 signal = getattr(widget, "valueChanged", None)
             if signal is not None:
                 signal.connect(self.update_preview)
+
+        for widget in (
+            getattr(self.ui, "forceHoldToleranceSpinBox", None),
+            getattr(self.ui, "forceHoldStepSpinBox", None),
+            getattr(self.ui, "forceHoldIntervalSpinBox", None),
+        ):
+            if widget is not None and hasattr(widget, "valueChanged"):
+                widget.valueChanged.connect(self._on_force_hold_parameter_changed)
 
         for index in range(16):
             checkbox = getattr(self.ui, f"ai{index}CheckBox", None)
@@ -1682,7 +1720,7 @@ class LedScanWorkflow:
     def _on_force_hold_toggled(self, checked, refresh=True):
         enabled = bool(checked) and not self._controls_locked
         for widget_name in (
-            "forceHoldFastResponseCheckBox",
+            "forceHoldIntervalSpinBox",
             "forceHoldToleranceSpinBox",
             "forceHoldStepSpinBox",
         ):
@@ -1693,6 +1731,21 @@ class LedScanWorkflow:
             self.update_preview()
         else:
             self._update_force_hold_status()
+
+    def _on_force_hold_parameter_changed(self, *_args):
+        app_config = getattr(self, "config", None)
+        interval = getattr(self.ui, "forceHoldIntervalSpinBox", None)
+        deadband = getattr(self.ui, "forceHoldToleranceSpinBox", None)
+        step = getattr(self.ui, "forceHoldStepSpinBox", None)
+        if interval is not None and app_config is not None:
+            app_config.force_derivative_interval_s = float(interval.value())
+        if deadband is not None and app_config is not None:
+            app_config.force_derivative_deadband_n_s = float(deadband.value())
+        if step is not None and app_config is not None:
+            app_config.force_derivative_z_step_mm = float(step.value())
+        if getattr(self, "on_config_saved", None) is not None:
+            self.on_config_saved()
+        self.update_preview()
 
     def _set_controls_locked(self, locked):
         widget_names = [*self.INTERLOCK_WIDGETS]

@@ -150,6 +150,8 @@ def test_force_hold_corrections_are_saved_for_review(tmp_path):
         measured_force_n=9.5,
         target_force_n=10.0,
         error_n=0.5,
+        derivative_n_s=-2.5,
+        derivative_interval_s=0.1,
         direction=1,
         step_mm=0.002,
         accumulated_z_mm=0.002,
@@ -166,6 +168,8 @@ def test_force_hold_corrections_are_saved_for_review(tmp_path):
         "measured_force(N)",
         "target_force(N)",
         "error(N)",
+        "force_derivative(N/s)",
+        "derivative_interval(s)",
         "z_direction",
         "z_step(mm)",
         "accumulated_z(mm)",
@@ -173,6 +177,8 @@ def test_force_hold_corrections_are_saved_for_review(tmp_path):
         "status",
     ]
     assert float(rows[1][0]) == pytest.approx(0.2)
+    assert float(rows[1][4]) == pytest.approx(-2.5)
+    assert float(rows[1][5]) == pytest.approx(0.1)
     assert rows[1][-1] == "applied"
 
 
